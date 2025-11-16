@@ -3114,8 +3114,7 @@ DEF(loadSelfSegment_watchpoint, -0x2FC6A7)
 DEF(loadSelfSegment_watchpoint_lr, -0x940CA7) 
 DEF(decryptSelfBlock_watchpoint_lr, -0x94093E) 
 DEF(decryptSelfBlock_epilogue, -0x9408DB) 
-//DEF(decryptMultipleSelfBlocks_watchpoint_lr, -0x940209)
-DEF(decryptMultipleSelfBlocks_watchpoint_lr, -0x940214)
+DEF(decryptMultipleSelfBlocks_watchpoint_lr, -0x940209)
 DEF(decryptMultipleSelfBlocks_epilogue, -0x93FFEF) 
 DEF(sceSblServiceMailbox_lr_verifyHeader, -0x940e47) 
 DEF(sceSblServiceMailbox_lr_loadSelfSegment, -0x940ad4) 
@@ -3207,3 +3206,4 @@ int set_offsets(void)
     return 0;
 
 }
+
