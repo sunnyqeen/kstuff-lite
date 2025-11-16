@@ -2641,7 +2641,7 @@ DEF(syscall_after, -0x87e28d)
 DEF(malloc, -0xbcfa0)
 DEF(M_something, 0x14070d0)
 DEF(loadSelfSegment_epilogue, -0x928551) 
-DEF(loadSelfSegment_watchpoint, -0x2F9228) //?????
+DEF(loadSelfSegment_watchpoint, -0x2F9228)
 DEF(loadSelfSegment_watchpoint_lr,  -0x928827)
 DEF(decryptSelfBlock_watchpoint_lr, -0x9284BE)
 DEF(decryptSelfBlock_epilogue, -0x928400) 
@@ -2664,7 +2664,7 @@ DEF(sceSblServiceCryptAsync, -0x970020)
 DEF(sceSblServiceCryptAsync_deref_singleton, -0x96FFE3)
 DEF(copyin, -0xa170b0)
 DEF(copyout, -0xa17160)
-DEF(crypt_message_resolve, -0x4AEFB0) //0x4AF100)
+DEF(crypt_message_resolve, -0x4AEFB0)
 DEF(justreturn, -0xa530c0)
 DEF(justreturn_pop, justreturn+8)
 DEF(mini_syscore_header, 0xe89518)
@@ -2683,10 +2683,10 @@ DEF(mov_rdi_cr2, -0xa5634a)
 DEF(lgdt_rdi, -0xa169c0)
 DEF(lidt_lldt, -0xa59971)
 DEF(ltr_ax, -0xa5994f)
-DEF(kproc_shutdown, -0x9f20b8))
+DEF(kproc_shutdown, -0x9f20b8)
 DEF(s_shutdown_final, 0x36B132)
 DEF(eventhandler_register, -0x55E8B0) 
-DEF(strlen_trap, -0x47D938) //47da88)
+DEF(strlen_trap, -0x47D938)
 DEF(lapic_map, 0x27af838)
 #include "offset_list.txt"
 END_FW()
@@ -3205,4 +3205,5 @@ int set_offsets(void)
     default: return -1;
     }
     return 0;
+
 }
