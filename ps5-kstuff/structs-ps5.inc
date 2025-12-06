@@ -20,19 +20,19 @@
 %define iret_ss (iret_rip+32)
 
 %define td_proc 8
-%define td_pcb 0x3f8
-%define td_retval 0x408
+%define td_pcb 0x3f8 //BREAKS 10.0x when +10
+%define td_retval 0x408 //+10 10.0x
 
 %define p_pid 0xbc
 
-%define pcb_fsbase 0x40
-%define pcb_gsbase 0x48
-%define pcb_idt 0xea
-%define pcb_ldt 0xf4
-%define pcb_flags 0x100
+%define pcb_fsbase 0x40 //+10 10.0x
+%define pcb_gsbase 0x48 //+10 10.0x
+%define pcb_idt 0xea //Not Used
+%define pcb_ldt 0xf4 //Not Used
+%define pcb_flags 0x100 //+10 10.0x
 
-%define syscall_rsp_to_rsi 0x88
-%define syscall_rsp_to_regs_stash 0x110
+%define syscall_rsp_to_rsi 0x88 //+10 10.0x
+%define syscall_rsp_to_regs_stash 0x110 //+10 10.0x
 
 %define sceSblServiceMailbox_decryptSelfBlock_rsp_to_self_context 0x118
 %define sceSblServiceMailbox_decryptSelfBlock_rsp_to_target_va 0x10

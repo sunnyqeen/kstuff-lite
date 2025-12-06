@@ -170,7 +170,7 @@ void handle_uexec_trap(uint64_t* regs, uint32_t trap)
             return_error(regs, token);
         else
         {
-            kpoke64(regs[RDI]+td_retval, 0);
+            kpoke64(regs[RDI]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), 0);
             return_error(regs, 0);
         }
         return;

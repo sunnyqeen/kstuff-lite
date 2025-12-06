@@ -54,11 +54,11 @@ static inline void pop_stack(uint64_t* regs, void* data, size_t sz)
 
 static inline int get_pcb_dbregs(void)
 {
-    return (kpeek64(kpeek64(kpeek64((uint64_t)pcpu)+td_pcb)+pcb_flags) & PCB_DBREGS) ? 1 : 0;
+    return (kpeek64(kpeek64(kpeek64((uint64_t)pcpu)+td_pcb)+pcb_flags+(fwver >= 0x1000 ? 0x10 : 0)) & PCB_DBREGS) ? 1 : 0;
 }
 
 static inline void set_pcb_dbregs(void)
 {
-    uint64_t p_pcb_flags = kpeek64(kpeek64((uint64_t)pcpu)+td_pcb) + pcb_flags;
+    uint64_t p_pcb_flags = kpeek64(kpeek64((uint64_t)pcpu)+td_pcb) + pcb_flags+(fwver >= 0x1000 ? 0x10 : 0);
     kpoke64(p_pcb_flags, kpeek64(p_pcb_flags) | PCB_DBREGS);
 }

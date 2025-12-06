@@ -2424,15 +2424,15 @@ static struct PARASITES(14) parasites_1000 = {
         //{-0x2FCE96, RAX},
         {-0x2FCE96, RDX},
         {-0x2FCC0B, RAX},
-        //{-0x2FCE96, RAX},
+        //{-0x2FC932, RAX},
         {-0x2FC932, R10},
         {-0x2FC5FA, RAX},
         {-0x2FC5EE, RAX},
         {-0xA32F8C, RDI},
         {-0x2FCA77, RAX},
         /* unsorted parasites */
-        {-0x4B5766, RCX},
-        {-0x4B5766, R14},
+        {-0x4B5766, RAX},
+        {-0x4B5766, R15},
     }
 };
 
@@ -2451,15 +2451,15 @@ static struct PARASITES(14) parasites_1001 = {
         //{-0x2FCE96, RAX},
         {-0x2FCE96, RDX},
         {-0x2FCC0B, RAX},
-        //{-0x2FCE96, RAX},
+        //{-0x2FC932, RAX},
         {-0x2FC932, R10},
         {-0x2FC5FA, RAX},
         {-0x2FC5EE, RAX},
         {-0xA32F8C, RDI},
         {-0x2FCA77, RAX},
         /* unsorted parasites */
-        {-0x4B5766, RCX},
-        {-0x4B5766, R14},
+        {-0x4B5766, RAX},
+        {-0x4B5766, R15},
     }
 };
 

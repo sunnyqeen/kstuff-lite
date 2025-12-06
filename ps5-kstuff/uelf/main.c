@@ -44,12 +44,12 @@ void handle_syscall(uint64_t* regs, int allow_kekcall)
     if(IS_PPR(getppid) && allow_kekcall)
     {
         uint64_t args[NREGS] = {0};
-        copy_from_kernel(args, regs[RSP]+syscall_rsp_to_regs_stash+8, sizeof(args));
+        copy_from_kernel(args, regs[RSP]+syscall_rsp_to_regs_stash+(fwver >= 0x1000 ? 0x10 : 0)+8, sizeof(args));
         int err = handle_kekcall(regs, args, args[RAX]>>32);
         if(err != ENOSYS)
         {
             if(!err)
-                kpoke64(regs[RDI]+td_retval, args[RAX]);
+                kpoke64(regs[RDI]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), args[RAX]);
             regs[RAX] = err;
             pop_stack(regs, &regs[RIP], 8);
         }
@@ -96,7 +96,7 @@ from_userspace:
         if((regs[CS] & 3)) //from userspace
         {
             //determine correct gsbase for userspace
-            uint64_t gsbase = kpeek64(kpeek64(kpeek64((uint64_t)pcpu)+td_pcb)+pcb_gsbase);
+            uint64_t gsbase = kpeek64(kpeek64(kpeek64((uint64_t)pcpu)+td_pcb)+pcb_gsbase+(fwver >= 0x1000 ? 0x10 : 0));
             //arm wrmsr in the exit path
             uint64_t args[3] = {gsbase >> 32, 0xc0000101, (uint32_t)gsbase};
             copy_to_kernel(wrmsr_args, args, sizeof(args));
@@ -137,7 +137,7 @@ from_userspace:
     else if(regs[RIP] == (uint64_t)syscall_before)
     {
         regs[RAX] |= 0xffffull << 48;
-        regs[RSI] = regs[RSP] + syscall_rsp_to_rsi;
+        regs[RSI] = regs[RSP] + syscall_rsp_to_rsi+(fwver >= 0x1000 ? 0x10 : 0);
         push_stack(regs, (const uint64_t[1]){(uint64_t)syscall_after}, 8);
         regs[RIP] = kpeek64(regs[RAX]+8);
         handle_syscall(regs, 1);
