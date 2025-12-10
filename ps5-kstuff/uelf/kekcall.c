@@ -30,7 +30,7 @@ int handle_kekcall(uint64_t* regs, uint64_t* args, uint32_t nr)
             stack_frame[10] &= -16;
         }
         push_stack(regs, stack_frame, sizeof(stack_frame));
-        kpoke64(regs[RDI]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), 0);
+        kpoke64(regs[RDI]+td_retval, 0);
         regs[RDI] = regs[RSP] + 48;
         regs[RSI] = args[RDI];
         regs[RDX] = 48;
@@ -81,7 +81,7 @@ void handle_kekcall_trap(uint64_t* regs, uint32_t trap)
         regs[RIP] = stack_frame[13];
         if((uint32_t)regs[RAX])
             return;
-        kpoke64(stack_frame[11]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), 0);
+        kpoke64(stack_frame[11]+td_retval, 0);
         set_pcb_dbregs();
         write_dbgregs(stack_frame+5);
     }
@@ -114,10 +114,10 @@ void handle_kekcall_trap(uint64_t* regs, uint32_t trap)
         {
             stack_frame_2[1] = MKTRAP(TRAP_KEKCALL, 4);
             stack_frame_2[8] = kpeek64(kpeek64(regs[RDI]+td_pcb)+pcb_fsbase+(fwver >= 0x1000 ? 0x10 : 0));
-            kpoke64(stack_frame[13]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), 0);
+            kpoke64(stack_frame[13]+td_retval, 0);
         }
         else
-            kpoke64(regs[RDI]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), 0);
+            kpoke64(regs[RDI]+td_retval, 0);
         push_stack(regs, stack_frame_2, sizeof(stack_frame_2));
         regs[RAX] = (uint64_t)&sysents[sysc_no];
         if(sysc_no == SYS_sysarch && (uint32_t)stack_frame[7] == AMD64_GET_FSBASE)
@@ -139,7 +139,7 @@ void handle_kekcall_trap(uint64_t* regs, uint32_t trap)
         uint64_t stack_frame[14];
         pop_stack(regs, stack_frame, sizeof(stack_frame));
         if(trap == 3 && !(uint32_t)regs[RAX])
-            kpoke64(stack_frame[5]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), kpeek64(stack_frame[6]+td_retval+(fwver >= 0x1000 ? 0x10 : 0)));
+            kpoke64(stack_frame[5]+td_retval, kpeek64(stack_frame[6]+td_retval));
         regs[RIP] = stack_frame[13];
     }
 }

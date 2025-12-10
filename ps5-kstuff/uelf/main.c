@@ -49,7 +49,7 @@ void handle_syscall(uint64_t* regs, int allow_kekcall)
         if(err != ENOSYS)
         {
             if(!err)
-                kpoke64(regs[RDI]+td_retval+(fwver >= 0x1000 ? 0x10 : 0), args[RAX]);
+                kpoke64(regs[RDI]+td_retval, args[RAX]);
             regs[RAX] = err;
             pop_stack(regs, &regs[RIP], 8);
         }

@@ -20,8 +20,8 @@
 %define iret_ss (iret_rip+32)
 
 %define td_proc 8
-%define td_pcb 0x3f8 //BREAKS 10.0x when +10
-%define td_retval 0x408 //+10 10.0x
+%define td_pcb 0x3f8
+%define td_retval 0x408
 
 %define p_pid 0xbc
 
