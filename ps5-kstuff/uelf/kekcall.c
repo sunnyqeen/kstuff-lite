@@ -6,7 +6,6 @@
 #include "kekcall.h"
 #include "traps.h"
 #include "utils.h"
-#include "uexec.h"
 
 extern char syscall_after[];
 extern char doreti_iret[];
@@ -62,9 +61,7 @@ int handle_kekcall(uint64_t* regs, uint64_t* args, uint32_t nr)
         regs[RDX] = 48;
         regs[RIP] = (uint64_t)copyin;
     }
-    else if(nr == 11)
-        return handle_uexec(regs, args);
-    else if(nr == 0xffffffff)
+   else if(nr == 0xffffffff)
     {
         args[RAX] = 0;
         return 0;
@@ -113,7 +110,8 @@ void handle_kekcall_trap(uint64_t* regs, uint32_t trap)
         if(sysc_no == SYS_sysarch && (uint32_t)stack_frame[7] == AMD64_GET_FSBASE)
         {
             stack_frame_2[1] = MKTRAP(TRAP_KEKCALL, 4);
-            stack_frame_2[8] = kpeek64(kpeek64(regs[RDI]+td_pcb)+pcb_fsbase+(fwver >= 0x1000 ? 0x10 : 0));
+            
+            stack_frame_2[8] = kpeek64(kpeek64(regs[RDI]+td_pcb)+(pcb_fsbase+fwver >= 0x1000 ? 0x10 : 0));
             kpoke64(stack_frame[13]+td_retval, 0);
         }
         else

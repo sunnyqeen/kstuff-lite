@@ -18,7 +18,6 @@ extern uelf_cr3
 extern uelf_entry
 extern ist_errc
 extern ist_noerrc
-extern parasites_kmem
 extern comparison_table
 
 global _start
@@ -192,13 +191,6 @@ dq 0
 errc_entry:
 memcpy regs_for_exit, errc_regs_stash, iret_rip-8
 memcpy regs_for_exit+iret_rip-8, errc_iret_frame-8, 48
-; looks like these checks are actually slower than a roundtrip to uelf
-;cmpqbe regs_for_exit+iret_rip, parasites_kmem+16, .next1, .decrypt_rdi_ret, .next1
-;.next1:
-;cmpqbe regs_for_exit+iret_rip, parasites_kmem+32, .next2, .decrypt_rsi_ret, .next2
-;.next2:
-;cmpqbe regs_for_exit+iret_rip, parasites_kmem+48, .slow_path, .decrypt_rsi_ret, .slow_path
-;.slow_path:
 memcpy justreturn_bak, errc_justreturn-8, 40
 dq doreti_iret
 dq nop_ret
@@ -352,9 +344,7 @@ times iret_rcx-iret_rdx-8 db 0
 dq justreturn_bak
 times iret_r8-iret_rcx-8 db 0
 dq return_wrmsr_gsbase+4
-times iret_r9-iret_r8-8 db 0
-dq restore_cr3
-times iret_rip-iret_r9-8 db 0
+times iret_rip-iret_r8-8 db 0
 dq doreti_iret
 dq 0x20
 dq 2

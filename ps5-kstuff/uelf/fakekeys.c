@@ -1,7 +1,13 @@
 #include <stdint.h>
 #include <string.h>
 #include "fakekeys.h"
-#include "shared_area.h"
+
+extern struct
+{
+    uint64_t bitmask;
+    char pad[24];
+    char key_data[63][32];
+} shared_area;
 
 int register_fake_key(const char key_data[32])
 {

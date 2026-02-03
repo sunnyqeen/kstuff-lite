@@ -27,8 +27,6 @@
 
 %define pcb_fsbase 0x40 //+10 10.0x
 %define pcb_gsbase 0x48 //+10 10.0x
-%define pcb_idt 0xea //Not Used
-%define pcb_ldt 0xf4 //Not Used
 %define pcb_flags 0x100 //+10 10.0x
 
 %define syscall_rsp_to_rsi 0x88 //+10 10.0x

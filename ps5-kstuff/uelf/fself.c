@@ -49,11 +49,12 @@ static int is_header_fself(uint64_t header, uint32_t size, uint16_t* e_type, int
     if(have_authinfo)
     {
         *have_authinfo = 0;
-        uint64_t sig_off = ex_offset + 64 + 48 + n_entries * 80 + 80;
+        uint64_t sig_off = ex_offset + 64 + 48 + n_entries * 80 + 80;		
         uint64_t signature[18] = {0};
+
         if(!copy_from_kernel_buffer(signature, header, header_end, sig_off, sizeof(signature)) && signature[0] == 0x88)
         {
-            memcpy(authinfo, signature+1, 0x88);
+			memcpy(authinfo, signature+1, 0x88);
             *have_authinfo = 1;
         }
     }
@@ -93,22 +94,10 @@ static void unset_dbgregs_for_watchpoint(uint64_t* regs)
     write_dbgregs(dbgregs);
 }
 
-#ifdef FIRMWARE_PORTING
-extern char mmap_self_fix_1_start[];
-extern char mmap_self_fix_2_start[];
-extern char mmap_self_fix_1_end[];
-extern char mmap_self_fix_2_end[];
-#endif
-
 static uint64_t dbgregs_for_fself[6] = {
     (uint64_t)sceSblServiceMailbox, (uint64_t)sceSblAuthMgrSmIsLoadable2,
-#ifdef FIRMWARE_PORTING
-    (uint64_t)mmap_self_fix_1_start, (uint64_t)mmap_self_fix_2_start,
-    0, 0x455,
-#else
     (uint64_t) aslr_fix_start, 0,
     0, 0x415,
-#endif
 };
 
 static uint64_t dbgregs_for_loadSelfSegment[6] = {
@@ -128,7 +117,7 @@ static uint64_t dbgregs_for_decryptMultipleSelfBlocks[6] = {
 
 void handle_fself_syscall(uint64_t* regs)
 {
-    start_syscall_with_dbgregs(regs, dbgregs_for_fself);
+	start_syscall_with_dbgregs(regs, dbgregs_for_fself);
 }
 
 void handle_fself_trap(uint64_t* regs, uint32_t trapno)
@@ -176,7 +165,7 @@ int try_handle_fself_mailbox(uint64_t* regs, uint64_t lr)
 		copy_from_kernel(
     		ctx,
     		(fwver >= 0x1000) ? kpeek64(regs[RBP] - 232) :
-    		(fwver >= 0x900) ? regs[R14] :
+    		(fwver >= 0x900 && fwver <= 0x960) ? regs[R14] :
     		(fwver >= 0x800 && fwver <= 0x860) ? kpeek64(regs[RBP] - 240) :
     		regs[RBX],
     		sizeof(ctx)
@@ -243,8 +232,9 @@ int try_handle_fself_trap(uint64_t* regs)
 {
     if(regs[RIP] == (uint64_t)sceSblAuthMgrSmIsLoadable2)
     {
-        uint64_t ctx[8];
+		uint64_t ctx[8];
         copy_from_kernel(ctx, regs[RDI], sizeof(ctx));
+
         uint16_t e_type;
         int have_authinfo;
         uint64_t authinfo[17];
@@ -271,13 +261,13 @@ int try_handle_fself_trap(uint64_t* regs)
             copy_to_kernel(regs[R8], p_authinfo, 0x88);
             pop_stack(regs, &regs[RIP], 8);
             regs[RAX] = 0;
-            copy_to_kernel(regs[RDI] + 62, &(const uint16_t[1]){0xdeb7}, 2);  
+            copy_to_kernel(regs[RDI] + 62, &(const uint16_t[1]){0xdeb7}, 2);
         }
     }
     else if(regs[RIP] == (uint64_t)loadSelfSegment_watchpoint)
     {
-        regs[(fwver >= 0x800) ? RAX : R10] |= 0xffffull << 48;
-		
+		regs[(fwver >= 0x800) ? RAX : R10] |= 0xffffull << 48;
+
         uint64_t frame[4];
         copy_from_kernel(frame, regs[RSP], sizeof(frame));
         if(frame[3] == (uint64_t)loadSelfSegment_watchpoint_lr)
@@ -291,12 +281,6 @@ int try_handle_fself_trap(uint64_t* regs)
          || regs[RIP] == (uint64_t)decryptSelfBlock_epilogue
          || regs[RIP] == (uint64_t)decryptMultipleSelfBlocks_epilogue)
          unset_dbgregs_for_watchpoint(regs);
-#ifdef FIRMWARE_PORTING
-    else if(regs[RIP] == (uint64_t)mmap_self_fix_1_start)
-        regs[RIP] = (uint64_t)mmap_self_fix_1_end;
-    else if(regs[RIP] == (uint64_t)mmap_self_fix_2_start)
-        regs[RIP] = (uint64_t)mmap_self_fix_2_end;
-#endif
     else
         return 0;
     return 1;

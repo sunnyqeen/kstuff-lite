@@ -6,7 +6,6 @@ enum
     TRAP_KEKCALL,
     TRAP_FSELF,
     TRAP_FPKG,
-    TRAP_UEXEC,
 };
 
 #define MKTRAP(kind, idx) (((uint64_t)(kind) << 32) | ((uint64_t)(idx)))

@@ -6,17 +6,13 @@
 #include <sys/sysent.h>
 #include <sys/syscall.h>
 #include "utils.h"
-#include "parasites.h"
 #include "log.h"
 #include "traps.h"
 #include "kekcall.h"
 #include "mailbox.h"
 #include "fself.h"
 #include "fpkg.h"
-#include "uexec.h"
 #include "syscall_fixes.h"
-#include "shared_area.h"
-#include "uexec.h"
 #include "npdrm.h"
 
 int have_error_code;
@@ -83,11 +79,6 @@ void handle_syscall(uint64_t* regs, int allow_kekcall)
 
 void handle(uint64_t* regs)
 {
-    if(__atomic_load_n(&shared_area.uexec_counter, __ATOMIC_ACQUIRE))
-    {
-        uexec_ipi(regs);
-        return;
-    }
     if(!(regs[CS] & 3))
         regs[EFLAGS] |= 0x10000; //RF
     if((regs[CS] & 3) || (regs[EFLAGS] & 0x40000)) //from userspace, or from copyin/copyout
@@ -132,8 +123,6 @@ from_userspace:
         regs[RSP] = stack;
         regs[SS] = 0;
     }
-    else if(handle_syscall_parasites(regs))
-        return;
     else if(regs[RIP] == (uint64_t)syscall_before)
     {
         regs[RAX] |= 0xffffull << 48;
@@ -162,7 +151,6 @@ from_userspace:
         case TRAP_FSELF: handle_fself_trap(regs, TRAP_IDX(lr)); break;
         case TRAP_FPKG: handle_fpkg_trap(regs, TRAP_IDX(lr)); break;
 #endif
-        case TRAP_UEXEC: handle_uexec_trap(regs, TRAP_IDX(lr)); break;
         }
     }
 #ifndef FREEBSD
@@ -170,17 +158,11 @@ from_userspace:
         return;
     else if(try_handle_fself_trap(regs))
         return;
-    else if(handle_fself_parasites(regs))
-        return;
-    else if(handle_unsorted_parasites(regs))
-        return;
     else if(try_handle_fpkg_trap(regs))
         return;
     else if(try_handle_syscall_fix_trap(regs))
         return;
 #endif
-    else if(try_handle_uexec_trap(regs))
-        return;
     else
     {
         int decrypted = 0;

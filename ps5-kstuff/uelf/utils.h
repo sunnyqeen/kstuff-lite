@@ -5,7 +5,6 @@
 #include "log.h"
 
 extern uint64_t cr3_phys;
-extern uint64_t cr3_phys_addr;
 extern uint64_t trap_frame;
 extern char pcpu[];
 extern char fwver[];
@@ -59,6 +58,6 @@ static inline int get_pcb_dbregs(void)
 
 static inline void set_pcb_dbregs(void)
 {
-    uint64_t p_pcb_flags = kpeek64(kpeek64((uint64_t)pcpu)+td_pcb) + pcb_flags+(fwver >= 0x1000 ? 0x10 : 0);
+    uint64_t p_pcb_flags = kpeek64(kpeek64((uint64_t)pcpu)+td_pcb)+pcb_flags+(fwver >= 0x1000 ? 0x10 : 0);
     kpoke64(p_pcb_flags, kpeek64(p_pcb_flags) | PCB_DBREGS);
 }

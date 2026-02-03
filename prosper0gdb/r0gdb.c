@@ -500,26 +500,6 @@ void r0gdb_write_cr3(uint64_t cr3)
     run_in_kernel(&regs);
 }
 
-uint64_t r0gdb_read_cr0(void)
-{
-    struct regs regs = {0};
-    regs.rip = offsets.mov_rax_cr0;
-    regs.rsp = kstack;
-    regs.eflags = 0x102;
-    run_in_kernel(&regs);
-    return regs.rax;
-}
-
-void r0gdb_write_cr0(uint64_t cr0)
-{
-    struct regs regs = {0};
-    regs.rip = offsets.mov_cr0_rax;
-    regs.rsp = kstack;
-    regs.eflags = 0x102;
-    regs.rax = cr0;
-    run_in_kernel(&regs);
-}
-
 uint64_t trace_frame_size = 168;
 uint64_t trace_base;
 uint64_t trace_start;
@@ -857,56 +837,9 @@ int mprotect20(void* addr, size_t sz, int prot)
     return ans;
 }
 
-static void fix_mmap_self(uint64_t* regs)
-{
-    SKIP_SCHEDULER
-    if(regs[0] == offsets.mmap_self_fix_1_start)
-        regs[0] = offsets.mmap_self_fix_1_end;
-    else if(regs[0] == offsets.mmap_self_fix_2_start)
-        regs[0] = offsets.mmap_self_fix_2_end;
-}
-
-void* mmap20(void* addr, size_t sz, int prot, int flags, int fd, off_t offset)
-{
-    r0gdb_instrument(0);
-    void*(*p_mmap)(void*, size_t, int, int, int, off_t) = WRAPPER(mmap);
-    trace_prog = fix_mmap_self;
-    set_trace();
-    void* ans = p_mmap(addr, sz, prot, flags, fd, offset);
-    trace_prog = 0;
-    return ans;
-}
-
 static uint64_t sys_write;
 static uint64_t sys_sigaction;
-static uint64_t sys_mdbg_call;
 static uint64_t sys_getpid;
-
-static void fix_sigaction_17_9(uint64_t* regs)
-{
-    SKIP_SCHEDULER
-    if(regs[0] == sys_write)
-        regs[0] = sys_sigaction;
-    else if(regs[0] == offsets.sigaction_fix_start)
-        regs[0] = offsets.sigaction_fix_end;
-}
-
-int sigaction20(int sig, const struct sigaction* neww, struct sigaction* oldd)
-{
-    if(sig != SIGKILL && sig != SIGSTOP)
-        return sigaction(sig, neww, oldd);
-    r0gdb_instrument(0);
-    int(*p_write)(int, const void*, void*) = WRAPPER2(write, _write);
-    trace_prog = fix_sigaction_17_9;
-    if(!sys_write)
-        kmemcpy(&sys_write, (void*)(offsets.sysents + 48*SYS_write + 8), 8);
-    if(!sys_sigaction)
-        kmemcpy(&sys_sigaction, (void*)(offsets.sysents + 48*SYS_sigaction + 8), 8);
-    set_trace();
-    int ans = p_write(sig, neww, oldd);
-    trace_prog = 0;
-    return ans;
-}
 
 static uint64_t dumped_auth_info[17];
 static int authinfo_dumped = 0;
@@ -927,49 +860,6 @@ static void filter_dump_authinfo(uint64_t* regs)
         kmemcpy(dumped_auth_info, (void*)r8, sizeof(dumped_auth_info));
         authinfo_dumped = 1;
     }
-}
-
-int get_self_auth_info_20(const char* path, void* buf)
-{
-    r0gdb_instrument(0);
-    int(*p_get_self_auth_info)(const char* path, void* buf) = (void*)WRAPPER(get_self_auth_info);
-    trace_prog = filter_dump_authinfo;
-    authinfo_dumped = 0;
-    set_trace();
-    int ans = p_get_self_auth_info(path, buf);
-    if(ans)
-        return ans;
-    if(!authinfo_dumped)
-        return -1;
-    char* dst = buf;
-    char* src = (void*)dumped_auth_info;
-    for(size_t i = 0; i < 0x88; i++)
-        dst[i] = src[i];
-    return 0;
-}
-
-static void fix_mdbg_call(uint64_t* regs)
-{
-    SKIP_SCHEDULER
-    if(regs[0] == sys_write)
-        regs[0] = sys_mdbg_call;
-    else if(regs[0] == offsets.mdbg_call_fix)
-        regs[5] = 1;
-}
-
-int mdbg_call_20(void* a, void* b, void* c)
-{
-    r0gdb_instrument(0);
-    int(*p_write)(void*, void*, void*) = WRAPPER2(write, _write);
-    trace_prog = fix_mdbg_call;
-    if(!sys_write)
-        kmemcpy(&sys_write, (void*)(offsets.sysents + 48*SYS_write + 8), 8);
-    if(!sys_mdbg_call)
-        kmemcpy(&sys_mdbg_call, (void*)(offsets.sysents + 48*573 + 8), 8);
-    set_trace();
-    int ans = p_write(a, b, c);
-    trace_prog = 0;
-    return ans;
 }
 
 static uint64_t fncall_fn = 0;
@@ -1325,159 +1215,6 @@ static uint64_t self_context;
 
 static void* trace_prog_after_mailbox = 0;
 
-static void trace_mailbox(uint64_t* regs)
-{
-    SKIP_SCHEDULER
-#if 0
-    if(regs[0] == kdata_base - 0x8a5410)
-        blocks_decrypted++;
-#endif
-    if((do_fself & 16))
-        fix_mmap_self(regs);
-#if 0
-    if((do_fself & 1) && regs[0] == kdata_base - 0x8a5a40) //verifyHeader
-    {
-        untrace_fn(regs);
-        mailbox_rdx = regs[12];
-        kmemcpy(&fself_hook_lr, (void*)regs[3], 8);
-        kmemcpy(&size_backup, (void*)(mailbox_rdx+8), 4);
-        kmemcpy(&header_ptr, (void*)(mailbox_rdx+0x38), 8);
-        kmemcpy(header_backup, (void*)header_ptr, 0x6a0);
-        kmemcpy((void*)header_ptr, (void*)(offsets.mini_syscore_header), 0x6a0);
-        kmemcpy((void*)(mailbox_rdx+8), &(const int[1]){0x6a0}, 4);
-    }
-    else if((do_fself & 1) && regs[0] == fself_hook_lr) //verifyHeader returned
-    {
-        fself_hook_lr = 0;
-        kmemcpy((void*)header_ptr, header_backup, 0x6a0);
-        kmemcpy((void*)(mailbox_rdx+8), &size_backup, 4);
-    }
-#endif
-    if((do_fself & 1) && regs[0] == offsets.sceSblServiceMailbox_lr_verifyHeader - 5) //verifyHeader calls sceSblServiceMailbox
-    {
-        regs[0] += 5;
-        regs[3] -= 8;
-        kmemcpy((void*)regs[3], regs, 8);
-        regs[0] = offsets.sceSblServiceMailbox;
-        untrace_fn(regs);
-        mailbox_rdx = regs[19];
-        kmemcpy(&header_ptr, (void*)(mailbox_rdx+0x38), 8);
-        kmemcpy(header_backup, (void*)header_ptr, 0x6a0);
-        kmemcpy((void*)header_ptr, (void*)(offsets.mini_syscore_header), 0x6a0);
-        kmemcpy((void*)(regs[7] + 16), &(const uint32_t[1]){0x6a0}, 4);
-    }
-    else if((do_fself & 1) && regs[0] == offsets.sceSblServiceMailbox_lr_verifyHeader) //sceSblServiceMailbox returns to verifyHeader
-    {
-        kmemcpy((void*)header_ptr, header_backup, 0x6a0);
-    }
-    else if((do_fself & 2) && regs[0] == offsets.sceSblAuthMgrSmIsLoadable2)
-    {
-        self_context = regs[12];
-        kmemcpy(regs, (void*)regs[3], 8);
-        regs[3] += 8;
-        regs[5] = 0;
-        kmemcpy((void*)regs[13], s_auth_info_for_dynlib, sizeof(s_auth_info_for_dynlib));
-    }
-    else if(regs[0] == offsets.sceSblServiceMailbox)
-    {
-        uint64_t lr;
-        kmemcpy(&lr, (void*)regs[3], 8);
-        if((do_fself & 4) && lr == offsets.sceSblServiceMailbox_lr_loadSelfSegment) //from loadSelfSegment
-        {
-            regs[3] += 8;
-            regs[0] = lr;
-            regs[5] = 0;
-            kmemcpy((void*)(regs[7]+4), &(const uint32_t[1]){0}, 4);
-            return;
-        }
-        else if(lr == offsets.sceSblServiceMailbox_lr_decryptSelfBlock) //from decryptSelfBlock
-        {
-            uint64_t request[7];
-            kmemcpy(request, (void*)regs[7], 56);
-            uint64_t p1 = request[1];
-            uint64_t p2 = request[2];
-            uint32_t sz = request[6];
-            uint64_t v1;
-            kmemcpy(&v1, (void*)(regs[3]+24), 8);
-            uint64_t v2 = (v1 - p1) + p2;
-            kmemcpy(encrypted_memory, (void*)v2, 4096);
-            kmemcpy(decrypted_memory, (void*)v1, 4096);
-            if((do_fself & 8))
-            {
-                if(n_faked_decrypts < 128)
-                {
-                    kmemcpy(faked_decrypts+128*n_faked_decrypts, (void*)regs[7], 128);
-                    n_faked_decrypts++;
-                }
-                regs[3] += 8;
-                regs[0] = lr;
-                regs[5] = 0;
-                kmemcpy((void*)(regs[7]+4), &(const uint32_t[1]){0}, 4);
-                kmemcpy((void*)v1, (void*)v2, sz);
-                return;
-            }
-        }
-        else if(lr == offsets.sceSblServiceMailbox_lr_decryptMultipleSelfBlocks && (do_fself & 64)) //from decryptMultipleSelfBlocks
-        {
-            uint64_t request[6];
-            kmemcpy(request, (void*)regs[7], 48);
-            uint64_t src_ptr_arr = request[1];
-            uint64_t dst_ptr_arr = request[2];
-            uint32_t count = request[5];
-            uint64_t vp[2];
-            kmemcpy(vp, (void*)(offsets.kernel_pmap_store+32), 16);
-            char* dmem_base = (char*)(vp[0] - vp[1]);
-            while(count--)
-            {
-                uint64_t src;
-                uint64_t dst;
-                kmemcpy(&src, dmem_base+src_ptr_arr, 8);
-                kmemcpy(&dst, dmem_base+dst_ptr_arr, 8);
-                src_ptr_arr += 8;
-                dst_ptr_arr += 8;
-                kmemcpy(dmem_base+dst, dmem_base+src, 16384);
-            }
-            if(n_faked_decrypts < 128)
-            {
-                kmemcpy(faked_decrypts+128*n_faked_decrypts, (void*)regs[7], 128);
-                n_faked_decrypts++;
-            }
-            regs[3] += 8;
-            regs[0] = lr;
-            regs[5] = 0;
-            kmemcpy((void*)(regs[7]+4), &(const uint32_t[1]){0}, 4);
-            return;
-        }
-        else if(lr == offsets.sceSblServiceMailbox_lr_sceSblAuthMgrSmFinalize) //from sceSblAuthMgrSmFinalize
-            return;
-        else if((do_fself & 32))
-        {
-            regs[0] = iret;
-            regs[2] &= -257ull;
-            regs[3] -= 40;
-            kmemcpy((void*)regs[3], regs, 40);
-        }
-        mailbox_lr[mailbox_n] = lr;
-        mailbox_rdx = regs[7];
-        kmemcpy(mailbox_request+128*mailbox_n, (void*)mailbox_rdx, 128);
-        if(mailbox_fakeresp[mailbox_n])
-        {
-            regs[3] += 8;
-            regs[0] = mailbox_lr[mailbox_n];
-            regs[5] = 0;
-            kmemcpy((void*)mailbox_rdx, mailbox_response+128*mailbox_n, 128);
-            mailbox_n++;
-        }
-    }
-    else if(regs[0] == mailbox_lr[mailbox_n])
-    {
-        kmemcpy(mailbox_response+128*mailbox_n, (void*)mailbox_rdx, 128);
-        mailbox_n++;
-    }
-    else if(trace_prog_after_mailbox)
-        ((void(*)(uint64_t*))trace_prog_after_mailbox)(regs);
-}
-
 static int ekh = 0x41414140;
 static int skh = 0x42424241;
 
@@ -1620,21 +1357,4 @@ uint32_t r0gdb_get_fw_version(void)
     unsigned int version = 0;
     sysctl(mib, 2, &version, &size, 0, 0);
     return version;
-}
-
-uintptr_t r0gdb_leak_fd(int which)
-{
-    uint64_t td = get_thread();
-    uint64_t proc = kread8(td+8);
-    uint64_t fd = kread8(proc+0x48);
-    uint64_t ofiles = kread8(fd);
-    uint64_t file = kread8(ofiles+48*which+8);
-    uint32_t count;
-    copyout(&count, file + 0x28, 4);
-    count++;
-    copyin(file + 0x28, &count, 4);
-    uint64_t file_value;
-    copyout(&file_value, file, 8);
-    close(which);
-    return file_value;
 }

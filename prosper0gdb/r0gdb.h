@@ -65,10 +65,6 @@ int mprotect20(void* addr, size_t sz, int prot);
 //mmap with map_self
 void* mmap20(void* addr, size_t sz, int prot, int flags, int fd, off_t offset);
 
-//sigaction with sigstop/sigkill
-struct sigaction;
-int sigaction20(int sig, const struct sigaction* neww, struct sigaction* oldd);
-
 //get_self_auth_info that works
 int get_self_auth_info_20(const char* path, void* buf);
 
@@ -83,9 +79,6 @@ uint64_t r0gdb_kmalloc(size_t sz);
 
 //get current firmware version
 uint32_t r0gdb_get_fw_version(void);
-
-//close the fd, without actually closing the underlying file
-uint64_t r0gdb_leak_fd(int which);
 
 /* internals */
 

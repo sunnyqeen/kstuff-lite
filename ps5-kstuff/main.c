@@ -13,16 +13,6 @@
 #include "../prosper0gdb/offsets.h"
 #include "../gdb_stub/dbg.h"
 #include "uelf/structs.h"
-#include "uelf/parasite_desc.h"
-
-bool if_exists(const char *path) {
-  struct stat buffer;
-  return stat(path, &buffer) == 0;
-}
-
-bool sceKernelIsTestKit() {
-  return if_exists("/system/priv/lib/libSceDeci5Ttyp.sprx");
-}
 
 void* dlsym(void*, const char*);
 
@@ -291,7 +281,7 @@ int get_proc_cr3(uint64_t pid, uint64_t* cr3, uint64_t* dmap_base)
     uint64_t vmspace = kread8(proc + 0x200);
     // TODO: i dont know when this shifted, may be an earlier fw, also, add this to offsets.c? 
     uint32_t fwver = r0gdb_get_fw_version() >> 16;
-    uint32_t vmspace_pmap_offset = (fwver >= 0x600 ? 0x2E8 : 0x2E0);
+    uint32_t vmspace_pmap_offset = (fwver >= 0x600) ? 0x2E8 : 0x2E0;
     uint64_t ptrs[2] = {0};
     copyout(ptrs, vmspace + vmspace_pmap_offset + 32, sizeof(ptrs));
     if (cr3) *cr3 = ptrs[1];
@@ -429,1052 +419,39 @@ struct shellcore_patch
     size_t sz;
 };
 
-static struct shellcore_patch shellcore_patches_300[] = {
-    //{0x9d1cae, "\x52\xeb\x08\x66\x90", 5},
-    {0x9d1cae, "\x52\xeb\x08", 3},
-    {0x9d1cb9, "\xe8\x02\xfc\xff\xff\x58\xc3", 7},
-    {0x9d18b1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x9d1899, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x4dcfb4, "\xeb\x04", 2},
-    {0x2569b1, "\xeb\x04", 2},
-    {0x25af5a, "\xeb\x04", 2},
-    {0x4fafca, "\x90\x90", 2},
-    {0x4e335d, "\x90\xe9", 2},
-    {0x4fbb63, "\xeb", 1},
-    {0x4ff329, "\xd0\x00\x00\x00", 4},
-    {0x1968c1, "\xe8\x4a\xde\x42\x00\x31\xc9\xff\xc1\xe9\x12\x01\x00\x00", 14},
-    {0x1969e1, "\x83\xf8\x02\x0f\x43\xc1\xe9\xff\xfb\xff\xff", 11},
-    {0x1965c9, "\xe9\xf3\x02\x00\x00", 5},
-    {0x131FA10, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x899166, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x25284B, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2528C8, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2529CB, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x252A9F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x252F35, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x253120, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2534E5, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x253582, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x4DEF37, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x4DF04C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x4E0F10, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_310[] = {
-    //{0x9d1cee, "\x52\xeb\x08\x66\x90", 5},
-    {0x9d1cee, "\x52\xeb\x08", 3},
-    {0x9d1cf9, "\xe8\x02\xfc\xff\xff\x58\xc3", 7},
-    {0x9d18f1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x9d18d9, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x4dcff4, "\xeb\x04", 2},
-    {0x2569f1, "\xeb\x04", 2},
-    {0x25af9a, "\xeb\x04", 2},
-    {0x4fb00a, "\x90\x90", 2},
-    {0x4e339d, "\x90\xe9", 2},
-    {0x4fbba3, "\xeb", 1},
-    {0x4ff369, "\xd0\x00\x00\x00", 4},
-    {0x1968c1, "\xe8\x8a\xde\x42\x00\x31\xc9\xff\xc1\xe9\x12\x01\x00\x00", 14},
-    {0x1969e1, "\x83\xf8\x02\x0f\x43\xc1\xe9\xff\xfb\xff\xff", 11},
-    {0x1965c9, "\xe9\xf3\x02\x00\x00", 5},
-    {0x131FA50, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x8991A6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x25288B, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x252908, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x252A0B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x252ADF, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x252F75, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x253160, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x253525, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2535C2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x4DEF77, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x4DF08C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x4E0F50, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_320[] = {
-    //{0x9d1f9e, "\x52\xeb\x08\x66\x90", 5},
-    {0x9d1f9e, "\x52\xeb\x08", 3},
-    {0x9d1fa9, "\xe8\x02\xfc\xff\xff\x58\xc3", 7},
-    {0x9d1ba1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x9d1b89, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x4dd284, "\xeb\x04", 2},
-    {0x256aa1, "\xeb\x04", 2},
-    {0x25b04a, "\xeb\x04", 2},
-    {0x4fb29a, "\x90\x90", 2},
-    {0x4e362d, "\x90\xe9", 2},
-    {0x4fbe33, "\xeb", 1},
-    {0x4ff5f9, "\xd0\x00\x00\x00", 4},
-    {0x1968c1, "\xe8\x3a\xe1\x42\x00\x31\xc9\xff\xc1\xe9\x12\x01\x00\x00", 14},
-    {0x1969e1, "\x83\xf8\x02\x0f\x43\xc1\xe9\xff\xfb\xff\xff", 11},
-    {0x1965c9, "\xe9\xf3\x02\x00\x00", 5},
-    {0x131FEA0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x899456, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x25293B, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2529B8, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x252ABB, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x252B8F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x253025, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x253210, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2535D5, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x253672, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x4DF207, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x4DF31C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x4E11E0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_321[] = {
-    //{0x9d1f9e, "\x52\xeb\x08\x66\x90", 5},
-    {0x9d1f9e, "\x52\xeb\x08", 3},
-    {0x9d1fa9, "\xe8\x02\xfc\xff\xff\x58\xc3", 7},
-    {0x9d1ba1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x9d1b89, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x4dd284, "\xeb\x04", 2},
-    {0x256aa1, "\xeb\x04", 2},
-    {0x25b04a, "\xeb\x04", 2},
-    {0x4fb29a, "\x90\x90", 2},
-    {0x4e362d, "\x90\xe9", 2},
-    {0x4fbe33, "\xeb", 1},
-    {0x4ff5f9, "\xd0\x00\x00\x00", 4},
-    {0x1968c1, "\xe8\x3a\xe1\x42\x00\x31\xc9\xff\xc1\xe9\x12\x01\x00\x00", 14},
-    {0x1969e1, "\x83\xf8\x02\x0f\x43\xc1\xe9\xff\xfb\xff\xff", 11},
-    {0x1965c9, "\xe9\xf3\x02\x00\x00", 5},
-    {0x131FEA0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x899456, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x25293B, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2529B8, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x252ABB, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x252B8F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x253025, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x253210, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2535D5, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x253672, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x4DF207, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x4DF31C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x4E11E0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_400[] = {
-    //{0x974fee, "\x52\xeb\x08\x66\x90", 5},
-    {0x974fee, "\x52\xeb\x08", 3},
-    {0x974ff9, "\xe8\xd2\xfb\xff\xff\x58\xc3", 7},
-    {0x974bc1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x974ba9, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x5307f9, "\xeb\x04", 2},
-    {0x26f35c, "\xeb\x04", 2},
-    {0x26f76c, "\xeb\x04", 2},
-    {0x54e1f0, "\xeb", 1},
-    {0x536e1d, "\x90\xe9", 2},
-    {0x54db8f, "\xeb", 1},
-    {0x55137a, "\xc8\x00\x00\x00", 4},
-    {0x1a12d1, "\xe8\xea\x88\x47\x00\x31\xc9\xff\xc1\xe9\xf4\x02\x00\x00", 14},
-    {0x1a15d3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x29\xfa\xff\xff", 11},
-    {0x1a0fe5, "\xe9\xe7\x02\x00\x00", 5},
-    {0x12B5EA0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x81CA56, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x267DBB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x267E52, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x267F6B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x26803F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2684A8, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x268679, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x268A45, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x268AE2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x532897, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5329AC, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5348C0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_402[] = {
-    //{0x974fee, "\x52\xeb\x08\x66\x90", 5},
-    {0x974fee, "\x52\xeb\x08", 3},
-    {0x974ff9, "\xe8\xd2\xfb\xff\xff\x58\xc3", 7},
-    {0x974bc1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x974ba9, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x5307f9, "\xeb\x04", 2},
-    {0x26f35c, "\xeb\x04", 2},
-    {0x26f76c, "\xeb\x04", 2},
-    {0x54e1f0, "\xeb", 1},
-    {0x536e1d, "\x90\xe9", 2},
-    {0x54db8f, "\xeb", 1},
-    {0x55137a, "\xc8\x00\x00\x00", 4},
-    {0x1a12d1, "\xe8\xea\x88\x47\x00\x31\xc9\xff\xc1\xe9\xf4\x02\x00\x00", 14},
-    {0x1a15d3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x29\xfa\xff\xff", 11},
-    {0x1a0fe5, "\xe9\xe7\x02\x00\x00", 5},
-    {0x12B5EB0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x81CA56, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x267DBB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x267E52, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x267F6B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x26803F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2684A8, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x268679, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x268A45, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x268AE2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x532897, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5329AC, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5348C0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_403[] = {
-    //{0x974fee, "\x52\xeb\x08\x66\x90", 5}, //push rdx; jmp 0x974ff9; 2-byte nop
-    {0x974fee, "\x52\xeb\x08", 3},
-    {0x974ff9, "\xe8\xd2\xfb\xff\xff\x58\xc3", 7}, //call 0x974bd0; pop rax; ret
-    {0x974bc1, "\x31\xc0\x50\xeb\xe3", 5}, //xor eax, eax; push rax; jmp 0x974ba9
-    {0x974ba9, "\xe8\x22\x00\x00\x00\x58\xc3", 7}, //call 0x974bd0; pop rax; ret
-    {0x5307f9, "\xeb\x04", 2}, //jmp 0x5307ff
-    {0x26f35c, "\xeb\x04", 2}, //jmp 0x26f362
-    {0x26f76c, "\xeb\x04", 2}, //jmp 0x26f772
-    {0x54e1f0, "\xeb", 1}, //jmp (destination unchanged)
-    {0x536e1d, "\x90\xe9", 2}, //nop; jmp (destination unchanged)
-    {0x54db8f, "\xeb", 1}, //jmp (destination unchanged)
-    {0x55137a, "\xc8\x00\x00\x00", 4}, //(jmp opcode unchanged) 0x551446
-    {0x1a12d1, "\xe8\xea\x88\x47\x00\x31\xc9\xff\xc1\xe9\xf4\x02\x00\x00", 14}, //call 0x619bc0; xor ecx, ecx; inc ecx; jmp 0x1a15d3
-    {0x1a15d3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x29\xfa\xff\xff", 11}, //cmp eax, 2; cmovae eax, ecx; jmp 0x1a1007
-    {0x1a0fe5, "\xe9\xe7\x02\x00\x00", 5}, //jmp 0x1a12d1
-    {0x12B5EB0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x81CA56, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x267DBB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x267E52, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x267F6B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x26803F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2684A8, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x268679, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x268A45, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x268AE2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x532897, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5329AC, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5348C0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_450[] = {
-    //{0x97595e, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0x97595e, "\x52\xeb\x08", 3},
-    {0x975969, "\xe8\xd2\xfb\xff\xff\x58\xc3", 7},
-    {0x975531, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x975519, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x530f42, "\xeb\x04", 2},
-    {0x26fa8c, "\xeb\x04", 2},
-    {0x26fe9c, "\xeb\x04", 2},
-    {0x54eb60, "\xeb", 1},
-    {0x5376bd, "\x90\xe9", 2},
-    {0x54e4ff, "\xeb", 1},
-    {0x551cea, "\xc8\x00\x00\x00", 4},
-    {0x1a12d1, "\xe8\x5a\x92\x47\x00\x31\xc9\xff\xc1\xe9\xf4\x02\x00\x00", 14},
-    {0x1a15d3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x29\xfa\xff\xff", 11},
-    {0x1a0fe5, "\xe9\xe7\x02\x00\x00", 5},
-    {0x12C1E70, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x81D3C6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2684eb, "\x90\xe9", 2}, //PS4 Disc Installer Patch 1
-    {0x268582, "\x90\xe9", 2}, //PS5 Disc Installer Patch 1
-    {0x26869b, "\xeb", 1}, //PS4 PKG Installer Patch 1
-    {0x26876f, "\xeb", 1}, //PS5 PKG Installer Patch 1
-    {0x268bd8, "\x90\xe9", 2}, //PS4 PKG Installer Patch 2
-    {0x268da9, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x269175, "\x90\xe9", 2}, //PS4 PKG Installer Patch 3
-    {0x269212, "\x90\xe9", 2}, //PS5 PKG Installer Patch 3
-    {0x533137, "\xeb", 1}, //PS4 PKG Installer Patch 4
-    {0x53324c, "\xeb", 1}, //PS5 PKG Installer Patch 4
-    {0x535160, "\x48\x31\xc0\xc3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_451[] = {
-    //{0x97596e, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0x97596e, "\x52\xeb\x08", 3},
-    {0x975979, "\xe8\xd2\xfb\xff\xff\x58\xc3", 7},
-    {0x975541, "\x31\xc0\x50\xeb\xe3", 5},
-    {0x975529, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x530f52, "\xeb\x04", 2},
-    {0x26fa8c, "\xeb\x04", 2},
-    {0x26fe9c, "\xeb\x04", 2},
-    {0x54eb70, "\xeb", 1},
-    {0x5376cd, "\x90\xe9", 2},
-    {0x54e50f, "\xeb", 1},
-    {0x551cfa, "\xc8\x00\x00\x00", 4},
-    {0x1a12d1, "\xe8\x6a\x92\x47\x00\x31\xc9\xff\xc1\xe9\xf4\x02\x00\x00", 14},
-    {0x1a15d3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x29\xfa\xff\xff", 11},
-    {0x1a0fe5, "\xe9\xe7\x02\x00\x00", 5},
-    {0x12C1E70, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x81D3D6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2684eb, "\x90\xe9", 2}, //PS4 Disc Installer Patch 1
-    {0x268582, "\x90\xe9", 2}, //PS5 Disc Installer Patch 1
-    {0x26869b, "\xeb", 1}, //PS4 PKG Installer Patch 1
-    {0x26876f, "\xeb", 1}, //PS5 PKG Installer Patch 1
-    {0x268bd8, "\x90\xe9", 2}, //PS4 PKG Installer Patch 2
-    {0x268da9, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x269175, "\x90\xe9", 2}, //PS4 PKG Installer Patch 3
-    {0x269212, "\x90\xe9", 2}, //PS5 PKG Installer Patch 3
-    {0x533147, "\xeb", 1}, //PS4 PKG Installer Patch 4
-    {0x53325c, "\xeb", 1}, //PS5 PKG Installer Patch 4
-    {0x535170, "\x48\x31\xc0\xc3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_500[] = {
-    //{0xa2e62e, "\x52\xeb\x08\x66\x90", 5},
-    {0xa2e62e, "\x52\xeb\x08", 3},
-    {0xa2e639, "\xe8\x22\xfb\xff\xff\x58\xc3", 7},
-    {0xa2e151, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa2e139, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x59c2b8, "\xeb\x04", 2},
-    {0x2a013c, "\xeb\x04", 2},
-    {0x2a054c, "\xeb\x04", 2},
-    {0x5b9377, "\xeb", 1},
-    {0x5a2f1d, "\x90\xe9", 2},
-    {0x5ba0af, "\xeb", 1},
-    {0x5bb613, "\x3b\x01\x00\x00", 4},
-    {0x1c33c1, "\xe8\xea\x7d\x4c\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1c35f3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xca\xfb\xff\xff", 11},
-    {0x1c30ee, "\xe9\xce\x02\x00\x00", 5},
-    {0x1382490, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x8CEAC6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x298CDB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x298D58, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x298E5B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x298F2F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x299396, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x299567, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x299935, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2999D2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x59D747, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x59D85C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5A02E0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_502[] = {
-    //{0xa2e61e, "\x52\xeb\x08\x66\x90", 5},
-    {0xa2e61e, "\x52\xeb\x08", 3},
-    {0xa2e629, "\xe8\x22\xfb\xff\xff\x58\xc3", 7},
-    {0xa2e141, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa2e129, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x59c2a8, "\xeb\x04", 2},
-    {0x2a013c, "\xeb\x04", 2},
-    {0x2a054c, "\xeb\x04", 2},
-    {0x5b9367, "\xeb", 1},
-    {0x5a2f0d, "\x90\xe9", 2},
-    {0x5ba09f, "\xeb", 1},
-    {0x5bb603, "\x3b\x01\x00\x00", 4},
-    {0x1c33c1, "\xe8\xda\x7d\x4c\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1c35f3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xca\xfb\xff\xff", 11},
-    {0x1c30ee, "\xe9\xce\x02\x00\x00", 5},
-    {0x1382470, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x8CEAB6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x298CDB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x298D58, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x298E5B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x298F2F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x299396, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x299567, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x299935, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2999D2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x59D737, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x59D84C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5A02D0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_510[] = {
-    //{0xa30fde, "\x52\xeb\x08\x66\x90", 5},
-    {0xa30fde, "\x52\xeb\x08", 3},
-    {0xa30fe9, "\xe8\x22\xfb\xff\xff\x58\xc3", 7},
-    {0xa30b01, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa30ae9, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x59ed78, "\xeb\x04", 2},
-    {0x2a100c, "\xeb\x04", 2},
-    {0x2a141c, "\xeb\x04", 2},
-    {0x5bbe37, "\xeb", 1},
-    {0x5a59dd, "\x90\xe9", 2},
-    {0x5bcb6f, "\xeb", 1},
-    {0x5be0d3, "\x3b\x01\x00\x00", 4},
-    {0x1c3511, "\xe8\xea\xac\x4c\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1c3743, "\x83\xf8\x02\x0f\x43\xc1\xe9\xca\xfb\xff\xff", 11},
-    {0x1c323e, "\xe9\xce\x02\x00\x00", 5},
-    {0x13855a0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x8D1486, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x299BAB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x299C28, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x299D2B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x298F2F, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x29A266, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x29A437, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x29A805, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x29A8A2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x5A0207, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5A031C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5A2DA0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_550[] = {
-    //{0xa319ee, "\x52\xeb\x08\x66\x90", 5},
-    {0xa319ee, "\x52\xeb\x08", 3},
-    {0xa319f9, "\xe8\x22\xfb\xff\xff\x58\xc3", 7},
-    {0xa31511, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa314f9, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x59ed78, "\xeb\x04", 2},
-    {0x2a100c, "\xeb\x04", 2},
-    {0x2a141c, "\xeb\x04", 2},
-    {0x5bbe37, "\xeb", 1},
-    {0x5a59dd, "\x90\xe9", 2},
-    {0x5bcb6f, "\xeb", 1},
-    {0x5be0d3, "\x3b\x01\x00\x00", 4},
-    {0x1c3511, "\xe8\xba\xb4\x4c\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1c3743, "\x83\xf8\x02\x0f\x43\xc1\xe9\xca\xfb\xff\xff", 11},
-    {0x1c323e, "\xe9\xce\x02\x00\x00", 5},
-    {0x1389c00, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x8D1E96, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x299BAB, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x299C28, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x299D2B, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x299DFF, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x29A266, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x29A437, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x29A805, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x29A8A2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x5A0207, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5A031C, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5A2DA0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_600[] = {
-    //{0xa7d30e, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xa7d30e, "\x52\xeb\x08", 3},
-    {0xa7d319, "\xe8\x82\xfa\xff\xff\x58\xc3", 7},
-    {0xa7cd91, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa7cd79, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x5d2bb4, "\xeb\x04", 2},
-    {0x2c0982, "\xeb\x04", 2},
-    {0x2c0dc2, "\xeb\x04", 2},
-    {0x5f01bf, "\xeb", 1},
-    {0x5d9c0d, "\x90\xe9", 2},
-    {0x5f0ef0, "\xeb", 1},
-    {0x5f248a, "\x3b\x01\x00\x00", 4},
-    {0x1d8c71, "\xe8\x7a\xb4\x4e\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1d8ea3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xc5\xfb\xff\xff", 11},
-    {0x1d897e, "\xe9\xee\x02\x00\x00", 5},
-    {0x14128f0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x91B466, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2b93cb, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2b9448, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2b954b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2b961f, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2b9a80, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2b9c50, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2ba025, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2ba0c2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x5d42f7, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5d440c, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5d7270, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_602[] = {
-    //{0xa7d2ae, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xa7d2ae, "\x52\xeb\x08", 3},
-    {0xa7d2b9, "\xe8\x82\xfa\xff\xff\x58\xc3", 7},
-    {0xa7cd31, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa7cd19, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x5d2bb4, "\xeb\x04", 2},
-    {0x2c0982, "\xeb\x04", 2},
-    {0x2c0dc2, "\xeb\x04", 2},
-    {0x5f01bf, "\xeb", 1},
-    {0x5d9c0d, "\x90\xe9", 2},
-    {0x5f0ef0, "\xeb", 1},
-    {0x5f248a, "\x3b\x01\x00\x00", 4},
-    {0x1d8c71, "\xe8\x1a\xb4\x4e\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1d8ea3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xc5\xfb\xff\xff", 11},
-    {0x1d897e, "\xe9\xee\x02\x00\x00", 5},
-    {0x1412cf0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x91B406, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2b93cb, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2b9448, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2b954b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2b961f, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2b9a80, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2b9c50, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2ba025, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2ba0c2, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x5d42f7, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5d440c, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5d7270, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_650[] = {
-    //{0xa7dade, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xa7dade, "\x52\xeb\x08", 3},
-    {0xa7dae9, "\xe8\x82\xfa\xff\xff\x58\xc3", 7},
-    {0xa7d561, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xa7d549, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x5d2c24, "\xeb\x04", 2},
-    {0x2c09f2, "\xeb\x04", 2},
-    {0x2c0e32, "\xeb\x04", 2},
-    {0x5f022f, "\xeb", 1},
-    {0x5d9c7d, "\x90\xe9", 2},
-    {0x5f0f60, "\xeb", 1},
-    {0x5f24fa, "\x3b\x01\x00\x00", 4},
-    {0x1d8c71, "\xe8\xea\xaf\x4e\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1d8ea3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xc5\xfb\xff\xff", 11},
-    {0x1d897e, "\xe9\xee\x02\x00\x00", 5},
-    {0x1413110, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x91BC36, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2b943b, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2b94b8, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2b95bb, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2b968f, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2b9af0, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2b9cc0, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2ba095, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2ba132, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x5d4367, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x5d447c, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x5d72e0, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_700[] = {
-    //{0xb424de, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb424de, "\x52\xeb\x08", 3},
-    {0xb424e9, "\xe8\xd2\xf9\xff\xff\x58\xc3", 7},
-    {0xb41eb1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb41e99, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68752f, "\xeb\x04", 2},
-    {0x2dcfe9, "\xeb\x04", 2},
-    {0x2dd439, "\xeb\x04", 2},
-    {0x6a5bca, "\xeb", 1},
-    {0x68f15d, "\x90\xe9", 2},
-    {0x6a6994, "\xeb", 1},
-    {0x6a7f38, "\x5e\x01\x00\x00", 4},
-    {0x1e1bb1, "\xe8\xca\xc5\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e1de3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e184e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x15771F0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9CAD26, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d59cb, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d5a49, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d5b4b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d5c20, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2d608a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2d625d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2d6635, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2d66d3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68601d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x688e77, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x68c230, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_701[] = {
-    //{0xb424de, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb424de, "\x52\xeb\x08", 3},
-    {0xb424e9, "\xe8\xd2\xf9\xff\xff\x58\xc3", 7},
-    {0xb41eb1, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb41e99, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68752f, "\xeb\x04", 2},
-    {0x2dcfe9, "\xeb\x04", 2},
-    {0x2dd439, "\xeb\x04", 2},
-    {0x6a5bca, "\xeb", 1},
-    {0x68f15d, "\x90\xe9", 2},
-    {0x6a6994, "\xeb", 1},
-    {0x6a7f38, "\x5e\x01\x00\x00", 4},
-    {0x1e1bb1, "\xe8\xca\xc5\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e1de3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e184e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x15771F0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9CAD26, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d59cb, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d5a49, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d5b4b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d5c20, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2d608a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2d625d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2d6635, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2d66d3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68601d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x688e77, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x68c230, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_720[] = {
-    //{0xb42dbe, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb42dbe, "\x52\xeb\x08", 3},
-    {0xb42dc9, "\xe8\xd2\xf9\xff\xff\x58\xc3", 7},
-    {0xb42791, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb42779, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68754f, "\xeb\x04", 2},
-    {0x2dcfe9, "\xeb\x04", 2},
-    {0x2dd439, "\xeb\x04", 2},
-    {0x6a5bea, "\xeb", 1},
-    {0x68f17d, "\x90\xe9", 2},
-    {0x6a69b4, "\xeb", 1},
-    {0x6a7f58, "\x5e\x01\x00\x00", 4},
-    {0x1e1bb1, "\xe8\x9a\xce\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e1de3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e184e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x1577AD0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9CB606, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d59cb, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d5a49, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d5b4b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d5c20, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2d608a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2d625d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2d6635, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2d66d3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68603d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x688e97, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x68c250, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_740[] = {
-    //{0xb4e4ae, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb4e4ae, "\x52\xeb\x08", 3},
-    {0xb4e4b9, "\xe8\xD2\xf9\xff\xff\x58\xc3", 7},
-    {0xb4de81, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb4de69, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68c03f, "\xeb\x04", 2},
-    {0x2e13b9, "\xeb\x04", 2},
-    {0x2e1809, "\xeb\x04", 2},
-    {0x6aa6da, "\xeb", 1},
-    {0x693c6d, "\x90\xe9", 2},
-    {0x6ab4a4, "\xeb", 1},
-    {0x6aca48, "\x5e\x01\x00\x00", 4},
-    {0x1e5f81, "\xe8\xba\xd5\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e61b3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e5c1e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x1584BE0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9D6CF6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d9d9b, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d9e19, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d9f1b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d9ff0, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2da45a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2da62d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2daa05, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2daaa3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68ab2d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x68d987, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x690d40, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_760[] = {
-    //{0xb51a8e, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb51a8e, "\x52\xeb\x08", 3},
-    {0xb51a99, "\xe8\xd2\xf9\xff\xff\x58\xc3", 7},
-    {0xb51461, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb51449, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68c03f, "\xeb\x04", 2},
-    {0x2e13b9, "\xeb\x04", 2},
-    {0x2e1809, "\xeb\x04", 2},
-    {0x6aa6da, "\xeb", 1},
-    {0x693c6d, "\x90\xe9", 2},
-    {0x6ab4a4, "\xeb", 1},
-    {0x6aca48, "\x5e\x01\x00\x00", 4},
-    {0x1e5f81, "\xe8\xba\xd5\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e61b3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e5c1e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x15881C0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9DA2D6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d9d9b, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d9e19, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d9f1b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d9ff0, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2da45a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2da62d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2daa05, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2daaa3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68ab2d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x68d987, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x690d40, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_761[] = {
-    //{0xb51a8e, "\x52\xeb\x08\x66\x90", 5}, // NOTE: Shouldn't need the \x66\x90.... on any FW
-    {0xb51a8e, "\x52\xeb\x08", 3},
-    {0xb51a99, "\xe8\xd2\xf9\xff\xff\x58\xc3", 7},
-    {0xb51461, "\x31\xc0\x50\xeb\xe3", 5},
-    {0xb51449, "\xe8\x22\x00\x00\x00\x58\xc3", 7},
-    {0x68c03f, "\xeb\x04", 2},
-    {0x2e13b9, "\xeb\x04", 2},
-    {0x2e1809, "\xeb\x04", 2},
-    {0x6aa6da, "\xeb", 1},
-    {0x693c6d, "\x90\xe9", 2},
-    {0x6ab4a4, "\xeb", 1},
-    {0x6aca48, "\x5e\x01\x00\x00", 4},
-    {0x1e5f81, "\xe8\xba\xd5\x59\x00\x31\xc9\xff\xc1\xe9\x24\x02\x00\x00", 14},
-    {0x1e61b3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x55\xfb\xff\xff", 11},
-    {0x1e5c1e, "\xe9\x5e\x03\x00\x00", 5},
-    {0x15881C0, "\x31\xC0\xC3", 3}, //VR2 Min Fw Check
-    {0x9DA2D6, "\x90\x90\x90\x90\x90", 5}, //disable game error message
-    {0x2d9d9b, "\x90\xE9", 2}, //PS4 Disc Installer Patch 1
-    {0x2d9e19, "\x90\xE9", 2}, //PS5 Disc Installer Patch 1
-    {0x2d9f1b, "\xEB", 1}, //PS4 PKG Installer Patch 1
-    {0x2d9ff0, "\xEB", 1}, //PS5 PKG Installer Patch 1
-    {0x2da45a, "\x90\xE9", 2}, //PS4 PKG Installer Patch 2
-    {0x2da62d, "\xeb", 1}, //PS5 PKG Installer Patch 2
-    {0x2daa05, "\x90\xE9", 2}, //PS4 PKG Installer Patch 3
-    {0x2daaa3, "\x90\xE9", 2}, //PS5 PKG Installer Patch 3
-    {0x68ab2d, "\xEB", 1}, //PS4 PKG Installer Patch 4
-    {0x68d987, "\xEB", 1}, //PS5 PKG Installer Patch 4
-    {0x690d40, "\x48\x31\xC0\xC3", 4}, //PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_800[] = {
-    {0xba85ce, "\x52\xeb\x08", 3}, //push rdx; jmp 0xBA85D9
-    {0xba85d9, "\xe8\xe2\xf6\xff\xff\x58\xc3", 7}, //call 0xBA7CC0; pop rax; ret
-    {0xba7cb1, "\xe9\xae\xfd\xff\xff", 5},  // jmp 0xBA7A64
-    {0xba7a64, "\x31\xc0\x50\xe8\x54\x02\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xBA7CC0; pop rax; ret
-
-    {0x6b27bd, "\xeb\x04", 2}, //jmp 0x6B27C3
-    {0x2f1a82, "\xeb\x04", 2}, //jmp 0x2F1A88
-    {0x2f1ed2, "\xeb\x04", 2}, //jmp 0x2F1ED8
-    {0x6d1cc1, "\xeb", 1}, //jmp
-    {0x6baa05, "\x90\xe9", 2}, //nop; jmp
-    {0x6d2a0d, "\xeb", 1}, //jmp
-
-    {0x6d3f89, "\x61\x01\x00\x00", 4}, // 0x6D40EE
-    {0x1f7272, "\xe8\x19\x3c\x5c\x00\x31\xc9\xff\xc1\xe9\xb3\x02\x00\x00", 14}, // call 0x7BAE90; xor ecx; inc ecx; jmp 0x1f7533
-    {0x1f7533, "\x83\xf8\x02\x0f\x43\xc1\xe9\xa7\xfb\xff\xff", 11},//cmp eax, 2; cmovae eax, ecx; jmp 0x1F70E5
-    {0x1f6f2e, "\xe9\x3f\x03\x00\x00", 5}, // JMP 0x1F7272
-
-	{0x6F08F0, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x15fbe80, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xa2cac6, "\xeb\x03", 2}, // disable game error message
-    {0x2ea51b, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x2ea599, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x2ea69c, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x2ea770, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x2eab57, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x2eacdf, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x2eb09e, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x2eb131, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6b14ca, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6b4324, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6b77b0, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_820[] = {
-    {0xBAF83E, "\x52\xeb\x08", 3}, //push rdx; jmp 0xBAF849 **
-    {0xBAF849, "\xe8\xe2\xf8\xff\xff\x58\xc3", 7}, //call 0xBAF130; pop rax; ret
-    {0xBAF121, "\xe9\xae\xfd\xff\xff", 5},  // jmp 0xBAEED4 **
-    {0xBAEED4, "\x31\xc0\x50\xe8\x54\x02\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xBAF130; pop rax; ret
-    {0x6B5673, "\xeb\x04", 2},
-    {0x2f1d22, "\xeb\x04", 2},
-    {0x2f2172, "\xeb\x04", 2},
-    {0x6d4b71, "\xeb", 1},
-    {0x6bd8b5, "\x90\xe9", 2},
-    {0x6d58bd, "\xeb", 1},
-    {0x6d6e39, "\x61\x01\x00\x00", 4}, // 0x6D6F9E **
-    {0x1f72e2, "\xe8\x29\x6b\x5c\x00\x31\xc9\xff\xc1\xe9\xb3\x02\x00\x00", 14}, // call 0x7BDE10; xor ecx; inc ecx; jmp 0x1f75a3
-    {0x1f75a3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xa7\xfb\xff\xff", 11},//cmp eax, 2; cmovae eax, ecx; jmp 0x1F7155
-    {0x1f6f9e, "\xe9\x3f\x03\x00\x00", 5}, // JMP 0x1f72e2
-
-	{0x6F3870, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x1607a20, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xa33f36, "\xeb\x03", 2}, // disable game error message
-    {0x2ea7bb, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x2ea839, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x2ea93c, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x2eaa10, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x2eadf7, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x2eaf7f, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x2eb33e, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x2eb3d1, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6b438a, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6b71d4, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6ba660, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_840[] = {
-    {0xBAF83E, "\x52\xeb\x08", 3}, //push rdx; jmp 0xBAF849 **
-    {0xBAF849, "\xe8\xe2\xf8\xff\xff\x58\xc3", 7}, //call 0xBAF130; pop rax; ret
-    {0xBAF121, "\xe9\xae\xfd\xff\xff", 5},  // jmp 0xBAEED4 **
-    {0xBAEED4, "\x31\xc0\x50\xe8\x54\x02\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xBAF130; pop rax; ret
-    {0x6B5673, "\xeb\x04", 2},
-    {0x2f1d22, "\xeb\x04", 2},
-    {0x2f2172, "\xeb\x04", 2},
-    {0x6d4b71, "\xeb", 1},
-    {0x6bd8b5, "\x90\xe9", 2},
-    {0x6d58bd, "\xeb", 1},
-    {0x6d6e39, "\x61\x01\x00\x00", 4}, // 0x6D6F9E **
-    {0x1f72e2, "\xe8\x29\x6b\x5c\x00\x31\xc9\xff\xc1\xe9\xb3\x02\x00\x00", 14}, // call 0x7BDE10; xor ecx; inc ecx; jmp 0x1f75a3
-    {0x1f75a3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xa7\xfb\xff\xff", 11},//cmp eax, 2; cmovae eax, ecx; jmp 0x1F7155
-    {0x1f6f9e, "\xe9\x3f\x03\x00\x00", 5}, // JMP 0x1f72e2
-
-	{0x6F3870, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x1607a20, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xa33f36, "\xeb\x03", 2}, // disable game error message
-    {0x2ea7bb, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x2ea839, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x2ea93c, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x2eaa10, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x2eadf7, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x2eaf7f, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x2eb33e, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x2eb3d1, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6b438a, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6b71d4, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6ba660, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_860[] = {
-    {0xBAF84E, "\x52\xeb\x08", 3}, //push rdx; jmp 0xBAF859 **
-    {0xBAF859, "\xe8\xe2\xf8\xff\xff\x58\xc3", 7}, //call 0xBAF140; pop rax; ret
-    {0xBAF131, "\xe9\xae\xfd\xff\xff", 5},  // jmp 0xBAEEE4 **
-    {0xBAEEE4, "\x31\xc0\x50\xe8\x54\x02\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xBAF140; pop rax; ret
-    {0x6B5503, "\xeb\x04", 2},
-    {0x2F1AD2, "\xeb\x04", 2},
-    {0x2F1F22, "\xeb\x04", 2},
-    {0x6D4A01, "\xeb", 1},
-    {0x6BD745, "\x90\xe9", 2},
-    {0x6D574D, "\xeb", 1},
-    {0x6D6CC9, "\x61\x01\x00\x00", 4}, // 0x6D6E2E **
-    {0x1f72e2, "\xe8\xb9\x69\x5c\x00\x31\xc9\xff\xc1\xe9\xb3\x02\x00\x00", 14}, // call 0x7BDCA0; xor ecx; inc ecx; jmp 0x1f75a3
-    {0x1f75a3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xa7\xfb\xff\xff", 11},//cmp eax, 2; cmovae eax, ecx; jmp 0x1F7155
-    {0x1f6f9e, "\xe9\x3f\x03\x00\x00", 5}, // JMP 0x1f72e2
-
-	{0x6F3700, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x1607A40, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA33DC6, "\xeb\x03", 2}, // disable game error message
-    {0x2EA56B, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x2EA5E9, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x2EA6EC, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x2EA7C0, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x2EABA7, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x2EAD2F, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x2EB0EE, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x2EB181, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6B421A, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6B7064, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6BA4F0, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_900[] = {
-    {0xC0F813, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC0F7F8
-    {0xC0F7F8, "\xe8\xe3\xf8\xff\xff\x58\xc3", 7}, //call 0xC0F0E0; pop rax; ret
-    {0xC0F0C6, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC0F0D1
-    {0xC0F0D1, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC0F0E0; pop rax; ret
-    {0x6F1C08, "\xeb\x04", 2},
-    {0x30E1CF, "\xeb\x04", 2},
-    {0x30E59F, "\xeb\x04", 2},
-    {0x7118CB, "\xeb", 1},
-    {0x6FA165, "\x90\xe9", 2},
-    {0x712035, "\xeb", 1},
-    {0x71401F, "\x61\x01\x00\x00", 4}, // 0x714184
-    {0x209DD1, "\xe8\x0a\x05\x60\x00\x31\xc9\xff\xc1\xe9\x84\x03\x00\x00", 14}, // call 0x80A2E0; xor ecx; inc ecx; jmp 0x20A163
-    {0x20A163, "\x83\xf8\x02\x0f\x43\xc1\xe9\x01\xf4\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x20956F
-    {0x209371, "\xe9\x5b\x0a\x00\x00", 5}, // jmp 0x209DD1
-
-	{0x734300, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A4690, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA8EA86, "\xeb\x03", 2}, // disable game error message
-    {0x3068EB, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x306969, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x306A6C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x306B40, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x306F46, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x3070ED, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x3074AE, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x307541, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6F088A, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6F37C4, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6F6E40, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_905[] = {
-    {0xC0F813, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC0F7F8
-    {0xC0F7F8, "\xe8\xe3\xf8\xff\xff\x58\xc3", 7}, //call 0xC0F0E0; pop rax; ret
-    {0xC0F0C6, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC0F0D1
-    {0xC0F0D1, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC0F0E0; pop rax; ret
-    {0x6F1C08, "\xeb\x04", 2},
-    {0x30E1CF, "\xeb\x04", 2},
-    {0x30E59F, "\xeb\x04", 2},
-    {0x7118CB, "\xeb", 1},
-    {0x6FA165, "\x90\xe9", 2},
-    {0x712035, "\xeb", 1},
-    {0x71401F, "\x61\x01\x00\x00", 4}, // 0x714184
-    {0x209DD1, "\xe8\x0a\x05\x60\x00\x31\xc9\xff\xc1\xe9\x84\x03\x00\x00", 14}, // call 0x80A2E0; xor ecx; inc ecx; jmp 0x20A163
-    {0x20A163, "\x83\xf8\x02\x0f\x43\xc1\xe9\x01\xf4\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x20956F
-    {0x209371, "\xe9\x5b\x0a\x00\x00", 5}, // jmp 0x209DD1
-
-	{0x734300, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A4690, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA8EA86, "\xeb\x03", 2}, // disable game error message
-    {0x3068EB, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x306969, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x306A6C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x306B40, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x306F46, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x3070ED, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x3074AE, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x307541, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6F088A, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6F37C4, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6F6E40, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_920[] = {
-    {0xC0F553, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC0F538
-    {0xC0F538, "\xe8\xe3\xf8\xff\xff\x58\xc3", 7}, //call 0xC0EE20; pop rax; ret
-    {0xC0EE06, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC0EE11
-    {0xC0EE11, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC0EE20; pop rax; ret
-    {0x6F1978, "\xeb\x04", 2},
-    {0x30DEEF, "\xeb\x04", 2},
-    {0x30E2BF, "\xeb\x04", 2},
-    {0x71160B, "\xeb", 1},
-    {0x6F9EA5, "\x90\xe9", 2},
-    {0x711D75, "\xeb", 1},
-    {0x713D5F, "\x61\x01\x00\x00", 4}, // 0x713EC4
-    {0x209DD1, "\xe8\x4a\x02\x60\x00\x31\xc9\xff\xc1\xe9\x84\x03\x00\x00", 14}, // call 0x80A020; xor ecx; inc ecx; jmp 0x20A163
-    {0x20A163, "\x83\xf8\x02\x0f\x43\xc1\xe9\x01\xf4\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x20956F
-	{0x209371, "\xe9\x5b\x0a\x00\x00", 5}, // jmp 0x209DD1
-
-	{0x734040, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A4D70, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA8E7C6, "\xeb\x03", 2}, // disable game error message
-    {0x30660B, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x306689, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x30678C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x306860, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x306C66, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x306E0D, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x3071CE, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x307261, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6F05FA, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6F3534, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6F6B80, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_940[] = {
-    {0xC0FCA3, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC0FC88
-    {0xC0FC88, "\xe8\xe3\xf8\xff\xff\x58\xc3", 7}, //call 0xC0F570; pop rax; ret
-    {0xC0F556, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC0F561
-    {0xC0F561, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC0F570; pop rax; ret
-    {0x6F2048, "\xeb\x04", 2},
-    {0x30E5BF, "\xeb\x04", 2},
-    {0x30E98F, "\xeb\x04", 2},
-    {0x711CDB, "\xeb", 1},
-    {0x6FA575, "\x90\xe9", 2},
-    {0x712445, "\xeb", 1},
-    {0x71442F, "\x61\x01\x00\x00", 4}, // 0x714594
-    {0x1FCEB2, "\xe8\x89\xd8\x60\x00\x31\xc9\xff\xc1\xe9\xd2\x01\x00\x00", 14}, // call 0x80A740; xor ecx; inc ecx; jmp 0x1FD092
-    {0x1FD092, "\x83\xf8\x02\x0f\x43\xc1\xe9\xa2\xcb\x00\x00", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x209C3F
-    {0x209A41, "\xe9\x6c\x34\xff\xff", 5}, // jmp 0x1FCEB2
-
-	{0x734710, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A5510, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA8EF16, "\xeb\x03", 2}, // disable game error message
-    {0x306CDB, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x306D59, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x306E5C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x306F30, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x307336, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x3074DD, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x30789E, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x307931, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6F0CCA, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6F3C04, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6F7250, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_960[] = {
-    {0xC18073, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC18058
-    {0xC18058, "\xe8\xe3\xf8\xff\xff\x58\xc3", 7}, //call 0xC17940; pop rax; ret
-    {0xC17926, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC17931
-    {0xC17931, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC17940; pop rax; ret
-    {0x6F20B8, "\xeb\x04", 2},
-    {0x30E62F, "\xeb\x04", 2},
-    {0x30E9FF, "\xeb\x04", 2},
-    {0x711D4B, "\xeb", 1},
-    {0x6FA5E5, "\x90\xe9", 2},
-    {0x7124B5, "\xeb", 1},
-    {0x71449F, "\x61\x01\x00\x00", 4}, // 0x714604
-    {0x20A511, "\xe8\xba\x02\x60\x00\x31\xc9\xff\xc1\xe9\x84\x03\x00\x00", 14}, // call 0x80A7D0; xor ecx; inc ecx; jmp 0x20A8A3
-    {0x20A8A3, "\x83\xf8\x02\x0f\x43\xc1\xe9\xe1\xf3\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x209C8F
-    {0x209A91, "\xe9\x7b\x0a\x00\x00", 5}, // jmp 0x20A511
-
-    {0x734780, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16AD8E0, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA972E6, "\xeb\x03", 2}, // disable game error message
-    {0x306D4B, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x306DC9, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x306ECC, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x306FA0, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x3073A6, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x30754D, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x30790E, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x3079A1, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x6F0D3A, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x6F3C74, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x6F72C0, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_1000[] = {
-    {0xC03AC3, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC03AA8
-    {0xC03AA8, "\xe8\x33\xf8\xff\xff\x58\xc3", 7}, //call 0xC032E0; pop rax; ret
-    {0xC032C6, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC032D1
-    {0xC032D1, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC032E0; pop rax; ret
-    {0x702624, "\xeb\x04", 2},
-    {0x30D19F, "\xeb\x04", 2},
-    {0x30D56F, "\xeb\x04", 2},
-    {0x722365, "\xeb", 1},
-    {0x70AF95, "\x90\xe9", 2},
-    {0x722AA3, "\xeb", 1},
-    {0x724A3F, "\x61\x01\x00\x00", 4}, // 0x724BA4
-    {0x206C11, "\xe8\x6a\x72\x60\x00\x31\xc9\xff\xc1\xe9\xd4\x01\x00\x00", 14}, // call 0x80DE80; xor ecx; inc ecx; jmp 0x206DF3
-    {0x206DF3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x9e\xf9\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x20679C
-    {0x20675D, "\xe9\xaf\x04\x00\x00", 5}, // jmp 0x206C11
-
-    {0x7460A0, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A1980, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA86D73, "\xeb\x03", 2}, // disable game error message
-    {0x305790, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x30580A, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x30590C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x3059E0, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x305DE7, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x305F8F, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x30633E, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x3063D1, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x700D28, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x7041F2, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x7078D0, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
-
-static struct shellcore_patch shellcore_patches_1001[] = {
-    {0xC03AC3, "\x52\xeb\xe2", 3}, //push rdx; jmp 0xC03AA8
-    {0xC03AA8, "\xe8\x33\xf8\xff\xff\x58\xc3", 7}, //call 0xC032E0; pop rax; ret
-    {0xC032C6, "\xe9\x06\x00\x00\x00", 5},  // jmp 0xC032D1
-    {0xC032D1, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, //xor eax, eax; push rax; call 0xC032E0; pop rax; ret
-    {0x702624, "\xeb\x04", 2},
-    {0x30D19F, "\xeb\x04", 2},
-    {0x30D56F, "\xeb\x04", 2},
-    {0x722365, "\xeb", 1},
-    {0x70AF95, "\x90\xe9", 2},
-    {0x722AA3, "\xeb", 1},
-    {0x724A3F, "\x61\x01\x00\x00", 4}, // 0x724BA4
-    {0x206C11, "\xe8\x6a\x72\x60\x00\x31\xc9\xff\xc1\xe9\xd4\x01\x00\x00", 14}, // call 0x80DE80; xor ecx; inc ecx; jmp 0x206DF3
-    {0x206DF3, "\x83\xf8\x02\x0f\x43\xc1\xe9\x9e\xf9\xff\xff", 11},// cmp eax, 2; cmovae eax, ecx; jmp 0x20679C
-    {0x20675D, "\xe9\xaf\x04\x00\x00", 5}, // jmp 0x206C11
-
-    {0x7460A0, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
-
-    {0x16A1980, "\x31\xc0\xc3", 3}, // VR2 Min Fw Check
-    {0xA86D73, "\xeb\x03", 2}, // disable game error message
-    {0x305790, "\x90\xe9", 2}, // PS4 Disc Installer Patch 1
-    {0x30580A, "\x90\xe9", 2}, // PS5 Disc Installer Patch 1
-    {0x30590C, "\xeb", 1}, // PS4 PKG Installer Patch 1
-    {0x3059E0, "\xeb", 1}, // PS5 PKG Installer Patch 1
-    {0x305DE7, "\x90\xe9", 2}, // PS4 PKG Installer Patch 2
-    {0x305F8F, "\xeb", 1}, // PS5 PKG Installer Patch 2
-    {0x30633E, "\x90\xe9", 2}, // PS4 PKG Installer Patch 3
-    {0x3063D1, "\x90\xe9", 2}, // PS5 PKG Installer Patch 3
-    {0x700D28, "\xeb", 1}, // PS4 PKG Installer Patch 4
-    {0x7041F2, "\xeb", 1}, // PS5 PKG Installer Patch 4
-    {0x7078D0, "\x48\x31\xc0\xc3", 4}, // PKG Installer
-};
+#include "shellcore_patches/3_00.h"
+#include "shellcore_patches/3_10.h"
+#include "shellcore_patches/3_20.h"
+#include "shellcore_patches/3_21.h"
+#include "shellcore_patches/4_00.h"
+#include "shellcore_patches/4_02.h"
+#include "shellcore_patches/4_03.h"
+#include "shellcore_patches/4_50.h"
+#include "shellcore_patches/4_51.h"
+#include "shellcore_patches/5_00.h"
+#include "shellcore_patches/5_02.h"
+#include "shellcore_patches/5_10.h"
+#include "shellcore_patches/5_50.h"
+#include "shellcore_patches/6_00.h"
+#include "shellcore_patches/6_02.h"
+#include "shellcore_patches/6_50.h"
+#include "shellcore_patches/7_00.h"
+#include "shellcore_patches/7_01.h"
+#include "shellcore_patches/7_20.h"
+#include "shellcore_patches/7_40.h"
+#include "shellcore_patches/7_60.h"
+#include "shellcore_patches/7_61.h"
+#include "shellcore_patches/8_00.h"
+#include "shellcore_patches/8_20.h"
+#include "shellcore_patches/8_40.h"
+#include "shellcore_patches/8_60.h"
+#include "shellcore_patches/9_05.h"
+#include "shellcore_patches/9_00.h"
+#include "shellcore_patches/9_20.h"
+#include "shellcore_patches/9_40.h"
+#include "shellcore_patches/9_60.h"
+#include "shellcore_patches/10_00.h"
+#include "shellcore_patches/10_01.h"
 
 extern char _start[];
 
@@ -1526,17 +503,53 @@ uint64_t get_eh_frame_offset(const char* path)
     return eh_frame;
 }
 
+bool if_exists(const char *path) {
+    struct stat buffer;
+    return stat(path, &buffer) == 0;
+}
+
+bool sceKernelIsTestKit(void) {
+    return if_exists("/system/priv/lib/libSceDeci5Ttyp.sprx");
+}
+
+bool sceKernelIsDevKit(void) {
+    return if_exists("/system/priv/lib/libSceDeci5Dtracep.sprx");
+}
+
+enum kit_type {
+    KIT_RETAIL,
+    KIT_TESTKIT,
+    KIT_DEVKIT
+};
+
+static enum kit_type get_kit_type(void) {
+    if (sceKernelIsDevKit())   return KIT_DEVKIT;
+    if (sceKernelIsTestKit())  return KIT_TESTKIT;
+    return KIT_RETAIL;
+}
+
 static const struct shellcore_patch* get_shellcore_patches(size_t* n_patches)
 {
-#ifdef FIRMWARE_PORTING
-    *n_patches = 1;
-    return 0;
-#endif
-#define FW(x)\
+enum kit_type kit = get_kit_type();
+	
+#define FW(x) \
     case 0x ## x:\
-        *n_patches = sizeof(shellcore_patches_ ## x) / sizeof(*shellcore_patches_ ## x);\
-        patches = shellcore_patches_ ## x;\
+        switch (kit) { \
+            case KIT_DEVKIT: \
+                *n_patches = sizeof(shellcore_patches_##x##_devkit) / sizeof(*shellcore_patches_##x##_devkit);\
+                patches = shellcore_patches_##x##_devkit;\
+                break; \
+            case KIT_TESTKIT: \
+                *n_patches = sizeof(shellcore_patches_##x##_testkit) / sizeof(*shellcore_patches_##x##_testkit);\
+                patches = shellcore_patches_##x##_testkit;\
+                break; \
+            case KIT_RETAIL: \
+                *n_patches = sizeof(shellcore_patches_##x##_retail) / sizeof(*shellcore_patches_##x##_retail);\
+                patches = shellcore_patches_##x##_retail;\
+                break; \
+        } \
         break
+	
     uint32_t ver = r0gdb_get_fw_version() >> 16;
     struct shellcore_patch* patches;
     switch(ver)
@@ -1606,977 +619,12 @@ static int patch_shellcore(const struct shellcore_patch* patches, size_t n_patch
     return 0;
 }
 
-static void patch_shellcore_old(const struct shellcore_patch* patches, size_t n_patches, uint64_t eh_frame_offset)
-{
-    int pid = find_proc("SceShellCore");
-    struct module_info_ex mod_info;
-    mod_info.st_size = sizeof(mod_info);
-    remote_syscall(pid, SYS_dynlib_get_info_ex, 0, 0, &mod_info);
-    uint64_t shellcore_base = mod_info.eh_frame_hdr_addr - eh_frame_offset;
-    for(int i = 0; i < n_patches; i++)
-    {
-        uint64_t arg1[4] = {1, 0x13};
-        uint64_t arg2[8] = {pid, shellcore_base + patches[i].offset, (uint64_t)patches[i].data, patches[i].sz};
-        uint64_t arg3[4] = {0};
-        kekcall((uint64_t)arg1, (uint64_t)arg2, (uint64_t)arg3, 0, 0, 0, SYS_mdbg_call);
-    }
-}
-
 #ifndef DEBUG
 #define dbg_enter()
 #define gdb_remote_syscall(...)
 #endif
 
 void patch_app_db(void);
-
-#ifdef FIRMWARE_PORTING
-static struct PARASITES(100) parasites_empty = {};
-#endif
-
-static struct PARASITES(12) parasites_300 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x7e96ad, RDI},
-        {-0x38214c, RSI},
-        {-0x38210c, RSI},
-        /* fself parasites */
-        {-0x970280, RDI},
-        {-0x2c922a, RAX},
-        {-0x2c90f0, RAX},
-        {-0x2c8e0e, RAX},
-        {-0x2c8cc6, R10},
-        {-0x2c8b8d, RAX},
-        {-0x2c881e, RDX},
-        {-0x2c8812, RCX},
-        {-0x2c86a6, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(12) parasites_310 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x7e966d, RDI},
-        {-0x38210c, RSI},
-        {-0x3820cc, RSI},
-        /* fself parasites */
-        {-0x970280, RDI},
-        {-0x2c91ea, RAX},
-        {-0x2c90b0, RAX},
-        {-0x2c8dce, RAX},
-        {-0x2c8c86, R10},
-        {-0x2c8b4d, RAX},
-        {-0x2c87de, RDX},
-        {-0x2c87d2, RCX},
-        {-0x2c8666, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(12) parasites_320 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x7e931d, RDI},
-        {-0x381dbc, RSI},
-        {-0x381d7c, RSI},
-        /* fself parasites */
-        {-0x96ff40, RDI},
-        {-0x2c8e9a, RAX},
-        {-0x2c8d60, RAX},
-        {-0x2c8a7e, RAX},
-        {-0x2c8936, R10},
-        {-0x2c87fd, RAX},
-        {-0x2c848e, RDX},
-        {-0x2c8482, RCX},
-        {-0x2c8316, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(12) parasites_321 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x7e931d, RDI},
-        {-0x381dbc, RSI},
-        {-0x381d7c, RSI},
-        /* fself parasites */
-        {-0x96ff40, RDI},
-        {-0x2c8e9a, RAX},
-        {-0x2c8d60, RAX},
-        {-0x2c8a7e, RAX},
-        {-0x2c8936, R10},
-        {-0x2c87fd, RAX},
-        {-0x2c848e, RDX},
-        {-0x2c8482, RCX},
-        {-0x2c8316, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(12) parasites_400 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x80284d, RDI},
-        {-0x388a8c, RSI},
-        {-0x388a4c, RSI},
-        /* fself parasites */
-        {-0x990b10, RDI},
-        {-0x2cd36a, RAX},
-        {-0x2cd230, RAX},
-        {-0x2ccf53, RAX},
-        {-0x2cce16, R10},
-        {-0x2cccdd, RAX},
-        {-0x2cc96e, RDX},
-        {-0x2cc962, RCX},
-        {-0x2cc7f6, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(12) parasites_402 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 12,
-    .parasites = {
-        /* syscall parasites */
-        {-0x80284d, RDI},
-        {-0x388a3c, RSI},
-        {-0x3889fc, RSI},
-        /* fself parasites */
-        {-0x990b10, RDI},
-        {-0x2cd31a, RAX},
-        {-0x2cd1e0, RAX},
-        {-0x2ccf03, RAX},
-        {-0x2ccdc6, R10},
-        {-0x2ccc8d, RAX},
-        {-0x2cc91e, RDX},
-        {-0x2cc912, RCX},
-        {-0x2cc7a6, RAX},
-        /* unsorted parasites */
-    }
-};
-
-static struct PARASITES(14) parasites_403 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x80284d, RDI},
-        {-0x3889ac, RSI},
-        {-0x38896c, RSI},
-        /* fself parasites */
-        {-0x2cc716, RAX},
-        {-0x2cd28a, RAX},
-        {-0x2cd150, RAX},
-        {-0x2cce73, RAX},
-        {-0x2ccbfd, RAX},
-        {-0x2cc88e, RDX},
-        {-0x2cc882, RCX},
-        {-0x990b10, RDI},
-        {-0x2ccd36, R10},
-        /* unsorted parasites */
-        {-0x479a0e, RAX},
-        {-0x479a0e, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_450 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x80281d, RDI},
-        {-0x38885c, RSI},
-        {-0x38881c, RSI},
-        /* fself parasites */
-        {-0x2cc566, RAX},
-        {-0x2cd0da, RAX},
-        {-0x2ccfa0, RAX},
-        {-0x2cccc3, RAX},
-        {-0x2cca4d, RAX},
-        {-0x2cc6de, RDX},
-        {-0x2cc6d2, RCX},
-        {-0x990b10, RDI},
-        {-0x2ccb86, R10},
-        /* unsorted parasites */
-        {-0x4798de, RAX},
-        {-0x4798de, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_451 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x80281d, RDI},
-        {-0x3884bc, RSI},
-        {-0x38847c, RSI},
-        /* fself parasites */
-        {-0x2cc1c6, RAX},
-        {-0x2ccd3a, RAX},
-        {-0x2ccc00, RAX},
-        {-0x2cc923, RAX},
-        {-0x2cc6ad, RAX},
-        {-0x2cc33e, RDX},
-        {-0x2cc332, RCX},
-        {-0x990b10, RDI},
-        {-0x2cc7e6, R10},
-        /* unsorted parasites */
-        {-0x47953e, RAX},
-        {-0x47953e, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_500 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x845d3c, RDI},  //?
-        {-0x835D3C, R13}, // ? 
-        {-0x39B0EC, RSI},
-        {-0x39B0AC, RSI},
-        /* fself parasites */
-        {-0x2DD156, RAX},
-        {-0x2DDCAA, RAX},
-        {-0x2DDB70, RAX},
-        {-0x2DD8D3, RAX},
-        {-0x2DD5ED, RAX},
-        {-0x2DD2CE, RDX},
-        {-0x2DD2C2, RCX},
-        {-0x9C6250, RDI},
-        {-0x2DD726, R10},
-        /* unsorted parasites */
-        {-0x48BD2E, RAX},
-        {-0x48BD2E, R15},
-    }
-};
-
-//Dont Have 5.02 Kernel Using Same As 5.00
-static struct PARASITES(14) parasites_502 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x845d3c, RDI},  //?
-        {-0x835D3C, R13}, // ? 
-        {-0x39B0EC, RSI},
-        {-0x39B0AC, RSI},
-        /* fself parasites */
-        {-0x2DD156, RAX},
-        {-0x2DDCAA, RAX},
-        {-0x2DDB70, RAX},
-        {-0x2DD8D3, RAX},
-        {-0x2DD5ED, RAX},
-        {-0x2DD2CE, RDX},
-        {-0x2DD2C2, RCX},
-        {-0x9C6250, RDI},
-        {-0x2DD726, R10},
-        /* unsorted parasites */
-        {-0x48BD2E, RAX},
-        {-0x48BD2E, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_510 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x845d3c, RDI},  //?
-        {-0x835d3c, R13}, // ? 
-        {-0x39AF1C, RSI},
-        {-0x39AEDC, RSI},
-        /* fself parasites */
-        {-0x2DCF06, RAX},
-        {-0x2DDA5A, RAX},
-        {-0x2DD920, RAX},
-        {-0x2DD683, RAX},
-        {-0x2DD39D, RAX},
-        {-0x2DD07E, RDX},
-        {-0x2DD072, RCX},
-        {-0x9C6250, RDI},
-        {-0x2DD4D6, R10},
-        /* unsorted parasites */
-        {-0x48BB5E, RAX},
-        {-0x48BB5E, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_550 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        // {-0x845c8c, RDI},
-        {-0x835c8c, R13},
-        {-0x39a12c, RSI},
-        {-0x39a0ec, RSI},
-        /* fself parasites */
-        {-0x2dc116, RAX},
-        {-0x2dcc6a, RAX},
-        {-0x2dcb30, RAX},
-        {-0x2dc893, RAX},
-        {-0x2dc5ad, RAX},
-        {-0x2dc28e, RDX},
-        {-0x2dc282, RCX},
-        {-0x9c6290, RDI},
-        {-0x2dc6e6, R10},
-        /* unsorted parasites */
-        {-0x48ad6e, RAX},
-        {-0x48ad6e, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_600 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x844fcc, RDI},
-        {-0x844fcc, R13},
-        {-0x39bb9c, RSI},
-        {-0x39bb5c, RSI},
-        /* fself parasites */
-        {-0x2da786, RAX},
-        {-0x2db2da, RAX},
-        {-0x2db1a0, RAX},
-        {-0x2daf03, RAX},
-        {-0x2dac1d, RAX},
-        {-0x2da8fe, RDX},
-        {-0x2da8f2, RCX},
-        {-0x9dcad0, RDI},
-        {-0x2dad56, R10},
-        /* unsorted parasites */
-        {-0x48feae, RAX},
-        {-0x48feae, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_602 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x844fcc, RDI},
-        {-0x844fcc, R13},
-        {-0x39bbbc, RSI},
-        {-0x39bb7c, RSI},
-        /* fself parasites */
-        {-0x2da7a6, RAX},
-        {-0x2db2fa, RAX},
-        {-0x2db1c0, RAX},
-        {-0x2daf23, RAX},
-        {-0x2dac3d, RAX},
-        {-0x2da91e, RDX},
-        {-0x2da912, RCX},
-        {-0x9dcad0, RDI},
-        {-0x2dad76, R10},
-        /* unsorted parasites */
-        {-0x48fece, RAX},
-        {-0x48fece, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_650 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x844fac, RDI},
-        {-0x844fac, R13},
-        {-0x39b92c, RSI},
-        {-0x39b8ec, RSI},
-        /* fself parasites */
-        {-0x2da016, RAX},
-        {-0x2dab6a, RAX},
-        {-0x2daa30, RAX},
-        {-0x2da793, RAX},
-        {-0x2da4ad, RAX},
-        {-0x2da18e, RDX},
-        {-0x2da182, RCX},
-        {-0x9dcad0, RDI},
-        {-0x2da5e6, R10},
-        /* unsorted parasites */
-        {-0x48fd0e, RAX},
-        {-0x48fd0e, R15},
-    }
-};
-static struct PARASITES(14) parasites_700 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x837AEC, RDI}, // ?
-        {-0x837AEC, R13},
-        {-0x3A400C, RSI},
-        {-0x3A3FCC, RSI},
-        /* fself parasites */
-        {-0x2E2EC6, RAX},
-        {-0x2E39FA, RAX},
-        {-0x2E38C0, RAX},
-        {-0x2E362B, RAX},
-        {-0x2E335D, RAX},
-        {-0x2E303E, RDX},
-        {-0x2E3032, RCX},
-        {-0x9CCCCC, RDI},
-        {-0x2E3496, R10},
-        /* unsorted parasites */
-        {-0x4918AE, RAX},
-        {-0x4918AE, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_701 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x837AEC, RDI}, // ?
-        {-0x837AEC, R13}, 
-        {-0x3A400C, RSI},
-        {-0x3A3FCC, RSI},
-        /* fself parasites */
-        {-0x2E2EC6, RAX},
-        {-0x2E39FA, RAX},
-        {-0x2E38C0, RAX},
-        {-0x2E362B, RAX},
-        {-0x2E335D, RAX},
-        {-0x2E303E, RDX},
-        {-0x2E3032, RCX},
-        {-0x9CCCCC, RDI},
-        {-0x2E3496, R10},
-        /* unsorted parasites */
-        {-0x4918AE, RAX},
-        {-0x4918AE, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_720 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x8377EC, RDI}, // ?
-        {-0x8377EC, R13},
-        {-0x3A3D0C, RSI},
-        {-0x3A3CCC, RSI},
-        /* fself parasites */
-        {-0x2E2BC6, RAX},
-        {-0x2E36FA, RAX},
-        {-0x2E35C0, RAX},
-        {-0x2E332B, RAX},
-        {-0x2E305D, RAX},
-        {-0x2E2D3E, RDX},
-        {-0x2E2D32, RCX},
-        {-0x9CCA8C, RDI},
-        {-0x2E3196, R10},
-        /* unsorted parasites */
-        {-0x4915AE, RAX},
-        {-0x4915AE, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_740 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x8377EC, RDI}, // ?
-        {-0x8377EC, R13}, 
-        {-0x3A3D0C, RSI},
-        {-0x3A3CCC, RSI},
-        /* fself parasites */
-        {-0x2E2BC6, RAX},
-        {-0x2E36FA, RAX},
-        {-0x2E35C0, RAX},
-        {-0x2E332B, RAX},
-        {-0x2E305D, RAX},
-        {-0x2E2D3E, RDX},
-        {-0x2E2D32, RCX},
-        {-0x9CCA8C, RDI},
-        {-0x2E3196, R10},
-        /* unsorted parasites */
-        {-0x4915AE, RAX},
-        {-0x4915AE, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_760 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x8377DC, RDI}, // ?
-        {-0x8377DC, R13},
-        {-0x3A3BCC, RSI},
-        {-0x3A3B8C, RSI},
-        /* fself parasites */
-        {-0x2E2A86, RAX},
-        {-0x2E35BA, RAX},
-        {-0x2E3480, RAX},
-        {-0x2E31EB, RAX},
-        {-0x2E2F1D, RAX},
-        {-0x2E2BFE, RDX},
-        {-0x2E2BF2, RCX},
-        {-0x9CCA8C, RDI},
-        {-0x2E3056, R10},
-        /* unsorted parasites */
-        {-0x49146E, RAX},
-        {-0x49146E, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_761 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        //{-0x8377DC, RDI}, // ?
-        {-0x8377DC, R13},  
-        {-0x3A3BCC, RSI},
-        {-0x3A3B8C, RSI},
-        /* fself parasites */
-        {-0x2E2A86, RAX},
-        {-0x2E35BA, RAX},
-        {-0x2E3480, RAX},
-        {-0x2E31EB, RAX},
-        {-0x2E2F1D, RAX},
-        {-0x2E2BFE, RDX},
-        {-0x2E2BF2, RCX},
-        {-0x9CCA8C, RDI},
-        {-0x2E3056, R10},
-        /* unsorted parasites */
-        {-0x49146E, RAX},
-        {-0x49146E, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_800 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x8574BE, R13},
-        {-0x3AE2BC, RSI},
-        {-0x3AE27C, RSI},
-        /* fself parasites */
-        {-0x2EC9F6, RAX},
-        {-0x2ED548, RAX},
-        {-0x2ED410, RAX},
-        {-0x2ED17B, RAX},
-        {-0x2ECEAD, RAX},
-	{-0x2ECB76, RAX},
-	{-0x2ECB6A, RAX},
-        {-0x9ED0EC, RDI},
-        {-0x2ECFE7, RAX},
-        /* unsorted parasites */
-        {-0x49D6BF, RAX},
-        {-0x49D6BF, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_820 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x85747E, R13},
-        {-0x3ACFBC, RSI},
-        {-0x3ACF7C, RSI},
-        /* fself parasites */
-        {-0x2EB6E6, RAX},
-        {-0x2EC238, RAX},
-        {-0x2EC100, RAX},
-        {-0x2EBE6B, RAX},
-        {-0x2EBB9D, RAX},
-        {-0x2EB866, RAX},
-        {-0x2EB85A, RAX},
-        {-0x9ED0EC, RDI},
-        {-0x2EBCD7, RAX},
-        /* unsorted parasites */
-        {-0x49C69F, RAX},
-        {-0x49C69F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_840 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x85617E, R13},
-        {-0x3ACD2C, RSI},
-        {-0x3ACCEC, RSI},
-        /* fself parasites */
-        {-0x2EB456, RAX},
-        {-0x2EBFA8, RAX},
-        {-0x2EBE70, RAX},
-        {-0x2EBBDB, RAX},
-        {-0x2EB90D, RAX},
-        {-0x2EB5D6, RAX},
-        {-0x2EB5CA, RAX},
-        {-0x9EBDEC, RDI},
-        {-0x2EBA47, RAX},
-        /* unsorted parasites */
-        {-0x49C40F, RAX},
-        {-0x49C40F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_860 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x85617E, R13},
-        {-0x3ACC9C, RSI},
-        {-0x3ACC5C, RSI},
-        /* fself parasites */
-        {-0x2EB276, RAX},
-        {-0x2EBDC8, RAX},
-        {-0x2EBC90, RAX},
-        {-0x2EB9FB, RAX},
-        {-0x2EB72D, RAX},
-        {-0x2EB3F6, RAX},
-        {-0x2EB3EA, RAX},
-        {-0x9EBDEC, RDI},
-        {-0x2EB867, RAX},
-        /* unsorted parasites */
-        {-0x49C37F, RAX},
-        {-0x49C37F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_900 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x87E7BE, R13},
-        {-0x3BC35C, RSI},
-        {-0x3BC31C, RSI},
-        /* fself parasites */
-        {-0x2F9016, RAX},
-        {-0x2F9B68, RAX},
-        {-0x2F9A30, RAX},
-        {-0x2F979B, RAX},
-        {-0x2F94CD, RAX},
-        {-0x2F9196, RAX},
-        {-0x2F918A, RAX},
-        {-0xA1730C, RDI},
-        {-0x2F9607, RAX},
-        /* unsorted parasites */
-        {-0x4AEE0F, RAX},
-        {-0x4AEE0F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_905 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x87E7BE, R13},
-        {-0x3BC12C, RSI},
-        {-0x3BC0EC, RSI},
-        /* fself parasites */
-        {-0x2F8DE6, RAX},
-        {-0x2F9938, RAX},
-        {-0x2F9800, RAX},
-        {-0x2F956B, RAX},
-        {-0x2F929D, RAX},
-        {-0x2F8F66, RAX},
-        {-0x2F8F5A, RAX},
-        {-0xA1730C, RDI},
-        {-0x2F93D7, RAX},
-        /* unsorted parasites */
-        {-0x4AECBF, RAX},
-        {-0x4AECBF, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_920 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x87E7CE, R13},
-        {-0x3BBEEC, RSI},
-        {-0x3BBEAC, RSI},
-        /* fself parasites */
-        {-0x2F8FF6, RAX},
-        {-0x2F9B48, RAX},
-        {-0x2F9A10, RAX},
-        {-0x2F977B, RAX},
-        {-0x2F94AD, RAX},
-        {-0x2F9176, RAX},
-        {-0x2F916A, RAX},
-        {-0xA1730C, RDI},
-        {-0x2F95E7, RAX},
-        /* unsorted parasites */
-        {-0x4AEA7F, RAX},
-        {-0x4AEA7F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_940 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x87E63E, R13},
-        {-0x3BB97C, RSI},
-        {-0x3BB93C, RSI},
-        /* fself parasites */
-        {-0x2F8A86, RAX},
-        {-0x2F95D8, RAX},
-        {-0x2F94A0, RAX},
-        {-0x2F920B, RAX},
-        {-0x2F8F3D, RAX},
-        {-0x2F8C06, RAX},
-        {-0x2F8BFA, RAX},
-        {-0xA1730C, RDI},
-        {-0x2F9077, RAX},
-        /* unsorted parasites */
-        {-0x4AE59F, RAX},
-        {-0x4AE59F, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_960 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x87E60E, R13},
-        {-0x3BB79C, RSI},
-        {-0x3BB75C, RSI},
-        /* fself parasites */
-        {-0x2F88A6, RAX},
-        {-0x2F93F8, RAX},
-        {-0x2F92C0, RAX},
-        {-0x2F902B, RAX},
-        {-0x2F8D5D, RAX},
-        {-0x2F8A26, RAX},
-        {-0x2F8A1A, RAX},
-        {-0xA1730C, RDI},
-        {-0x2F8E97, RAX},
-        /* unsorted parasites */
-        {-0x4AE3DF, RAX},
-        {-0x4AE3DF, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_1000 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x894308, R13},
-        {-0x3BF480, RSI},
-        {-0x3BF440, RSI},
-        /* fself parasites */
-        {-0x2FC476, RAX},
-        {-0x2FCFDA, RAX},
-        //{-0x2FCE96, RAX},
-        {-0x2FCE96, RDX},
-        {-0x2FCC0B, RAX},
-        //{-0x2FC932, RAX},
-        {-0x2FC932, R10},
-        {-0x2FC5FA, RAX},
-        {-0x2FC5EE, RAX},
-        {-0xA32F8C, RDI},
-        {-0x2FCA77, RAX},
-        /* unsorted parasites */
-        {-0x4B5766, RAX},
-        {-0x4B5766, R15},
-    }
-};
-
-static struct PARASITES(14) parasites_1001 = {
-    .lim_syscall = 3,
-    .lim_fself = 12,
-    .lim_total = 14,
-    .parasites = {
-        /* syscall parasites */
-        {-0x894308, R13},
-        {-0x3BF480, RSI},
-        {-0x3BF440, RSI},
-        /* fself parasites */
-        {-0x2FC476, RAX},
-        {-0x2FCFDA, RAX},
-        //{-0x2FCE96, RAX},
-        {-0x2FCE96, RDX},
-        {-0x2FCC0B, RAX},
-        //{-0x2FC932, RAX},
-        {-0x2FC932, R10},
-        {-0x2FC5FA, RAX},
-        {-0x2FC5EE, RAX},
-        {-0xA32F8C, RDI},
-        {-0x2FCA77, RAX},
-        /* unsorted parasites */
-        {-0x4B5766, RAX},
-        {-0x4B5766, R15},
-    }
-};
-
-static struct parasite_desc* get_parasites(size_t* desc_size)
-{
-    uint32_t ver = r0gdb_get_fw_version() >> 16;
-    switch(ver)
-    {
-#ifndef FIRMWARE_PORTING
-    case 0x300:
-        *desc_size = sizeof(parasites_300);
-        return (void*)&parasites_300;
-    case 0x310:
-        *desc_size = sizeof(parasites_310);
-        return (void*)&parasites_310;
-    case 0x320:
-        *desc_size = sizeof(parasites_320);
-        return (void*)&parasites_320;
-    case 0x321:
-        *desc_size = sizeof(parasites_321);
-        return (void*)&parasites_321;
-    case 0x400:
-        *desc_size = sizeof(parasites_400);
-        return (void*)&parasites_400;
-    case 0x402:
-        *desc_size = sizeof(parasites_402);
-        return (void*)&parasites_402;
-    case 0x403:
-        *desc_size = sizeof(parasites_403);
-        return (void*)&parasites_403;
-    case 0x450:
-        *desc_size = sizeof(parasites_450);
-        return (void*)&parasites_450;
-    case 0x451:
-        *desc_size = sizeof(parasites_451);
-        return (void*)&parasites_451;
-    case 0x500:
-        *desc_size = sizeof(parasites_500);
-        return (void*)&parasites_500;
-    case 0x502:
-        *desc_size = sizeof(parasites_502);
-        return (void*)&parasites_502;
-    case 0x510:
-        *desc_size = sizeof(parasites_510);
-        return (void*)&parasites_510;
-    case 0x550:
-        *desc_size = sizeof(parasites_550);
-        return (void*)&parasites_550;
-    case 0x600:
-        *desc_size = sizeof(parasites_600);
-        return (void*)&parasites_600;
-    case 0x602:
-        *desc_size = sizeof(parasites_602);
-        return (void*)&parasites_602;
-    case 0x650:
-        *desc_size = sizeof(parasites_650);
-        return (void*)&parasites_650;
-    case 0x700:
-        *desc_size = sizeof(parasites_700);
-        return (void*)&parasites_700;
-    case 0x701:
-        *desc_size = sizeof(parasites_701);
-        return (void*)&parasites_701;
-    case 0x720:
-        *desc_size = sizeof(parasites_720);
-        return (void*)&parasites_720;
-    case 0x740:
-        *desc_size = sizeof(parasites_740);
-        return (void*)&parasites_740;
-    case 0x760:
-        *desc_size = sizeof(parasites_760);
-        return (void*)&parasites_760;
-    case 0x761:
-        *desc_size = sizeof(parasites_761);
-        return (void*)&parasites_761;	
-    case 0x800:
-        *desc_size = sizeof(parasites_800);
-        return (void*)&parasites_800;
-    case 0x820:
-        *desc_size = sizeof(parasites_820);
-        return (void*)&parasites_820;
-    case 0x840:
-        *desc_size = sizeof(parasites_840);
-        return (void*)&parasites_840;
-    case 0x860:
-        *desc_size = sizeof(parasites_860);
-        return (void*)&parasites_860;
-    case 0x900:
-        *desc_size = sizeof(parasites_900);
-        return (void*)&parasites_900;
-    case 0x905:
-        *desc_size = sizeof(parasites_905);
-        return (void*)&parasites_905;
-    case 0x920:
-        *desc_size = sizeof(parasites_920);
-        return (void*)&parasites_920;
-    case 0x940:
-        *desc_size = sizeof(parasites_940);
-        return (void*)&parasites_940;
-    case 0x960:
-        *desc_size = sizeof(parasites_960);
-        return (void*)&parasites_960;
-    case 0x1000:
-        *desc_size = sizeof(parasites_1000);
-        return (void*)&parasites_1000;
-    case 0x1001:
-        *desc_size = sizeof(parasites_1001);
-        return (void*)&parasites_1001;
-    default:
-        return 0;
-#else
-    default:
-        *desc_size = sizeof(parasites_empty);
-        return (void*)&parasites_empty;
-#endif
-    }
-}
 
 static inline uint64_t rdtsc(void)
 {
@@ -2617,13 +665,7 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
         notify("ps5-kstuff is already loaded");
         return 1;
     }
-    size_t desc_size = 0;
-    struct parasite_desc* desc = get_parasites(&desc_size);
-    if(!desc)
-    {
-        notify("your firmware is not supported (ps5-kstuff)");
-        return 1;
-    }
+
     size_t n_shellcore_patches;
     uint64_t shellcore_eh_frame_offset = get_eh_frame_offset("/system/vsh/SceShellCore.elf");
     const struct shellcore_patch* shellcore_patches = get_shellcore_patches(&n_shellcore_patches);
@@ -2679,18 +721,11 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     uint64_t uelf_virt_base = (find_empty_pml4_index(0) << 39) | (-1ull << 48);
     uint64_t dmem_virt_base = (find_empty_pml4_index(1) << 39) | (-1ull << 48);
     shared_area = virt2phys(shared_area,0,0,0) + dmem_virt_base;
-    uint64_t kelf_parasite_desc = (uint64_t)kmalloc(8192);
-    kelf_parasite_desc = ((kelf_parasite_desc - 1) | 4095) + 1;
-    for(int i = 0; i < desc->lim_total; i++)
-        desc->parasites[i].address += kdata_base;
-    kmemcpy((void*)kelf_parasite_desc, desc, desc_size);
-    uint64_t uelf_parasite_desc = virt2phys(kelf_parasite_desc,0,0,0) + dmem_virt_base;
+
     volatile int zero = 0; //hack to force runtime calculation of string pointers
     const char* symbols[] = {
         "comparison_table"+zero,
         "dmem"+zero,
-        "parasites"+zero,
-        "parasites_kmem"+zero,
         "int1_handler"+zero,
         "int13_handler"+zero,
         ".ist_errc"+zero,
@@ -2703,7 +738,7 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
         ".uelf_entry"+zero,
         ".fwver"+zero,
 #define OFFSET(x) (#x)+zero,
-#include "../prosper0gdb/offset_list.txt"
+#include "../prosper0gdb/offsets/offset_list.txt"
 #undef OFFSET
         0,
     };
@@ -2712,8 +747,6 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     uint64_t values[] = {
         comparison_table,      // comparison_table
         dmem_virt_base,        // dmem
-        uelf_parasite_desc,    // parasites
-        kelf_parasite_desc,    // parasites_kmem
         int1_handler,          // int1_handler
         int13_handler,         // int13_handler
         0x1237,                // .ist_errc
@@ -2726,7 +759,7 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
         0x1236,                // .uelf_entry
         fwver,                 // .fwver
 #define OFFSET(x) offsets.x,
-#include "../prosper0gdb/offset_list.txt"
+#include "../prosper0gdb/offsets/offset_list.txt"
 #undef OFFSET
         0,
     };
@@ -2809,72 +842,79 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     copyin(offsets.crypt_singleton_array + 11*8 + 2*8 + 6, &(const uint16_t[1]){0xdeb7}, 2); //crypt xts
     copyin(offsets.crypt_singleton_array + 11*8 + 9*8 + 6, &(const uint16_t[1]){0xdeb7}, 2); //crypt hmac
 
-    if (fwver < 0x700)				   
-    {
-        //enable debug settings & spoof target
-        uint32_t q = 0;
-        copyout(&q, offsets.security_flags, 4);
-        q |= 0x14;
-        copyin(offsets.security_flags, &q, 4);
-		if(!sceKernelIsTestKit())
-            copyin(offsets.targetid, "\x82", 1);
-        copyout(&q, offsets.qa_flags, 4);
-        q |= 0x1030300;
-        copyin(offsets.qa_flags, &q, 4);
-        copyout(&q, offsets.utoken, 4);
-        q |= 1;
-        copyin(offsets.utoken, &q, 4);
-    }
     gdb_remote_syscall("write", 3, 0, (uintptr_t)1, (uintptr_t)"done\npatching shellcore... ", (uintptr_t)27);
     //restore the gdb_stub's SIGTRAP handler
     struct sigaction sa;
     sigaction(SIGBUS, 0, &sa);
     sigaction(SIGTRAP, &sa, 0);
-#ifndef FIRMWARE_PORTING
-    sigaction(SIGPIPE, &sa, 0);
-#endif
+
     copyin(IDT+16*9+5, "\x8e", 1);
     copyin(IDT+16*179+5, "\x8e", 1);
-    if(!sceKernelIsTestKit())
+	
+    if (shellcore_patches)
     {
-        if (patch_shellcore(shellcore_patches, n_shellcore_patches, shellcore_eh_frame_offset))
+        if (patch_shellcore(shellcore_patches,
+                            n_shellcore_patches,
+                            shellcore_eh_frame_offset))
+        {
             notify("failed to patch shellcore");
+        }
     }
+	
     gdb_remote_syscall("write", 3, 0, (uintptr_t)1, (uintptr_t)"done\npatching app.db... ", (uintptr_t)24);
-    #ifndef FIRMWARE_PORTING
-    //patch_app_db();
-    #endif
+
     gdb_remote_syscall("write", 3, 0, (uintptr_t)1, (uintptr_t)"done\n", (uintptr_t)5);
     #ifndef DEBUG
     //notify("ps5-kstuff successfully loaded");
-    int major_bcd = (fwver >> 8) & 0xFF; 
-    int minor_bcd = fwver & 0xFF;
 
+    // Extract BCD parts
+    int major_bcd = (fwver >> 8) & 0xFF;   // major version in BCD
+    int minor_bcd = fwver & 0xFF;          // minor version in BCD
+
+    // Convert BCD → decimal
     int major = (major_bcd >> 4) * 10 + (major_bcd & 0xF);
     int minor_dec = (minor_bcd >> 4) * 10 + (minor_bcd & 0xF);
 
     char msg[64], *p = msg;
-    char *hdr = "Welcome To Kstuff 1.6.7\nPlayStation 5 FW: ";
+
+    // Header
+    const char *hdr =
+        "Welcome To Kstuff Lite 1.0\nPlayStation 5 FW: ";
     while (*hdr) *p++ = *hdr++;
 
-    if (major >= 10) *p++ = '0' + major / 10;
+    // Major
+    if (major >= 10)
+        *p++ = '0' + major / 10;
     *p++ = '0' + major % 10;
 
+    // Minor
     *p++ = '.';
     *p++ = '0' + minor_dec / 10;
     *p++ = '0' + minor_dec % 10;
-	
-    char *ftr = "\nBy sleirsgoevy";
-    while (*ftr) *p++ = *ftr++;
-    *p = 0;
 
+    *p++ = ' ';
+
+    const char *t;
+
+    if (sceKernelIsDevKit())
+        t = "(Devkit)";
+    else if (sceKernelIsTestKit())
+        t = "(Testkit)";
+    else
+        t = "(Retail)";
+
+    while (*t)
+        *p++ = *t++;
+
+    // Footer
+    const char *ftr = "\nBy sleirsgoevy";
+    while (*ftr) *p++ = *ftr++;
+
+    *p = 0;
     notify(msg);
+	
     return 0;
 #endif
     asm volatile("ud2");
     return 0;
 }
-
-
-
-
