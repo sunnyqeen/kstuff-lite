@@ -31,14 +31,12 @@ structs.h: structs.inc
 uelf/crt.o: uelf/crt.asm
 	yasm uelf/crt.asm -f elf64 -o uelf/crt.o
 
-uelf/uelf: uelf/*.c uelf/*.h structs.h uelf/crt.o BearSSL/build/libbearssl.a libtomcrypt/libtomcrypt.a
-	gcc -Wl,-Bsymbolic -Wl,-gc-sections -ffunction-sections -fdata-sections -O3 -g -isystem ../freebsd-headers -nostdinc -nostdlib -mgeneral-regs-only -fno-stack-protector -fPIE -fPIC -shared -fvisibility=hidden -ffreestanding uelf/crt.o $(EXTRA_CFLAGS) uelf/*.c -L BearSSL/build -lbearssl -L libtomcrypt -ltomcrypt -o uelf/uelf -Wl,-z,max-page-size=4096
+uelf/uelf: uelf/*.c uelf/*.h structs.h uelf/crt.o mbedtls/library/libmbedcrypto.a
+	gcc -Wl,-Bsymbolic -Wl,-gc-sections -ffunction-sections -fdata-sections -O3 -g -isystem ../freebsd-headers -Imbedtls/include -nostdinc -nostdlib -mgeneral-regs-only -fno-stack-protector -fPIE -fPIC -shared -fvisibility=hidden -ffreestanding uelf/crt.o $(EXTRA_CFLAGS) uelf/*.c -L mbedtls/library -lmbedcrypto -o uelf/uelf -Wl,-z,max-page-size=4096
 
 uelf/uelf.bin: uelf/uelf
 	objcopy --strip-all $< $@
 
-BearSSL/build/libbearssl.a: build_bearssl.sh overrides.h
-	bash build_bearssl.sh
+mbedtls/library/libmbedcrypto.a: build_mbedtls.sh
+	bash build_mbedtls.sh
 
-libtomcrypt/libtomcrypt.a: build_libtomcrypt.sh overrides.h
-	bash build_libtomcrypt.sh

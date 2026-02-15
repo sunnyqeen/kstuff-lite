@@ -6,7 +6,8 @@
 #include "log.h"
 #include "fpu.h"
 
-#include "../libtomcrypt/src/headers/tomcrypt.h"
+#include "mbedtls/aes.h"
+#include "mbedtls/sha256.h"
 
 // #define NPDRM_PORTING 1
 
@@ -21,32 +22,30 @@ static const uint8_t rif_debug_key[] = {0x96, 0xC2, 0x26, 0x8D, 0x69, 0x26, 0x1C
 int aes_cbc_128_decrypt(uint8_t *out, const uint8_t *in, int size, const uint8_t *key, const uint8_t *iv)
 {
     int err = -1;
-    static int aes_cipher = -1;
+    mbedtls_aes_context aes;
     uelf_fpu_enter();
-    if (aes_cipher < 0)
-    {
-        if ((aes_cipher = register_cipher(&aes_desc)) < 0) goto exit;
-    }
 
-    symmetric_CBC cbc;
-    if ((err = cbc_start(aes_cipher, iv, key, 16, 0, &cbc)) != CRYPT_OK) goto exit;
-    if ((err = cbc_decrypt(in, out, size, &cbc)) != CRYPT_OK) goto exit;
-    if ((err = cbc_done(&cbc)) != CRYPT_OK) goto exit;
+    mbedtls_aes_init(&aes);
+    if ((err = mbedtls_aes_setkey_dec(&aes, key, 256)) != 0) goto exit;
+    if ((err = mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, size, iv, in, out)) != 0) goto exit;
 exit:
+    mbedtls_aes_free(&aes);
     uelf_fpu_exit();
     return err;
 }
 
 int sha256_buffer(const unsigned char *in, unsigned long inlen, unsigned char *out)
 {
-    hash_state md;
     int err = -1;
+    mbedtls_sha256_context md;
 
     uelf_fpu_enter();
-    if ((err = sha256_init(&md)) != CRYPT_OK) goto exit;
-    if ((err = sha256_process(&md, in, inlen)) != CRYPT_OK) goto exit;
-    if ((err = sha256_done(&md, out)) != CRYPT_OK) goto exit;
+    mbedtls_sha256_init(&md);
+    if ((err = mbedtls_sha256_starts(&md, 0)) != 0) goto exit;
+    if ((err = mbedtls_sha256_update(&md, in, inlen)) != 0) goto exit;
+    if ((err = mbedtls_sha256_finish(&md, out)) != 0) goto exit;
 exit:
+    mbedtls_sha256_free(&md);
     uelf_fpu_exit();
     return err;
 }
