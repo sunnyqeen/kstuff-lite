@@ -32,7 +32,7 @@ uelf/crt.o: uelf/crt.asm
 	yasm uelf/crt.asm -f elf64 -o uelf/crt.o
 
 uelf/uelf: uelf/*.c uelf/*.h structs.h uelf/crt.o BearSSL/build/libbearssl.a isa-l_crypto/bin/isa-l_crypto.a
-	gcc -Wl,-Bsymbolic -Wl,-gc-sections -ffunction-sections -fdata-sections -O3 -g -isystem ../freebsd-headers -isystem isa-l_crypto/include -nostdinc -nostdlib -mgeneral-regs-only -fno-stack-protector -fPIE -fPIC -shared -fvisibility=hidden -ffreestanding uelf/crt.o $(EXTRA_CFLAGS) uelf/*.c BearSSL/build/libbearssl.a isa-l_crypto/bin/isa-l_crypto.a -o uelf/uelf -Wl,-z,max-page-size=4096
+	gcc -Wl,-Bsymbolic -Wl,-gc-sections -ffunction-sections -fdata-sections -O3 -march=znver2 -mtune=znver2 -g -isystem ../freebsd-headers -isystem isa-l_crypto/include -nostdinc -nostdlib -mgeneral-regs-only -fno-stack-protector -fPIE -fPIC -shared -fvisibility=hidden -ffreestanding uelf/crt.o $(EXTRA_CFLAGS) uelf/*.c BearSSL/build/libbearssl.a isa-l_crypto/bin/isa-l_crypto.a -o uelf/uelf -Wl,-z,max-page-size=4096
 
 uelf/uelf.bin: uelf/uelf
 	objcopy --strip-all $< $@
