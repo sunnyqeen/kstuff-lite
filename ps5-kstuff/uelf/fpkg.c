@@ -18,17 +18,19 @@ extern char doreti_iret[];
 #define IDX_TO_HANDLE(x) (0x13374100 | ((uint8_t)((x)+1)))
 #define HANDLE_TO_IDX(x) ((((x) & 0xffffff00) == 0x13374100 ? ((int)(uint8_t)(x)) : (int)0) - 1)
 
-static void crypto_request_emulated(uint64_t* regs, uint64_t msg, uint32_t status)
+static int crypto_request_emulated(uint64_t* regs, uint64_t msg, uint32_t status)
 {
     uint64_t frame[7] = {
         (uint64_t)doreti_iret,
         MKTRAP(TRAP_FPKG, 1), 0, 0, 0, 0,
         0
     };
-    push_stack(regs, frame, sizeof(frame));
+    if(push_stack_checked(regs, frame, sizeof(frame)))
+        return 0;
     regs[RIP] = (uint64_t)crypt_message_resolve;
     regs[RDI] = msg;
     regs[RSI] = status;
+    return 1;
 }
 
 static int handle_crypto_message(uint64_t* regs, uint64_t msg, uint64_t bytes_cap, uint64_t* bytes_handled)
@@ -50,11 +52,11 @@ static int handle_crypto_message(uint64_t* regs, uint64_t msg, uint64_t bytes_ca
         uint8_t hash[32] = {0};
         *bytes_handled += msg_data[1];
         if(bytes_cap < *bytes_handled && pfs_hmac_virtual(hash, key, msg_data[2], msg_data[1]))
-		 
-										   
             return -1;
-		 
-        copy_to_kernel(msg+32, hash, 32);
+        if(copy_to_kernel(msg+32, hash, 32))
+        {
+            return -1;
+        }
         return 0;
     }
     else if((msg_data[0] & 0x7ffff7ff) == 0x2108000) // AES-XTS decrypt/encrypt with key handle
@@ -107,7 +109,6 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
     uint64_t new_bytes_handled = 0;
 
     uint64_t start = (FWVER >= 0x800) ? regs[RBX] : regs[R14];
-
     for (uint64_t msg = start; msg && !total_status; msg = kpeek64(msg + 320))
     {
         int status = handle_crypto_message(regs, msg, bytes_handled, &new_bytes_handled);
@@ -118,7 +119,11 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
                 MKTRAP(TRAP_FPKG, 2), 0, 0, 0, 0,
                 new_bytes_handled,
             };
-            push_stack(regs, frame, sizeof(frame));
+            if(push_stack_checked(regs, frame, sizeof(frame)))
+            {
+                total_status = -1;
+                break;
+            }
             regs[RIP] = (uint64_t)doreti_iret;
             return 1;
         }
@@ -142,7 +147,8 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
             total_status = -1;
         }
 
-        crypto_request_emulated(regs, (FWVER >= 0x800) ? regs[RBX] : regs[R14], total_status);
+        if(!crypto_request_emulated(regs, (FWVER >= 0x800) ? regs[RBX] : regs[R14], total_status))
+            return 0;
 
         uint64_t end_time = rdtsc();
         /*log_word(0x1234);
@@ -173,7 +179,8 @@ int try_handle_fpkg_mailbox(uint64_t* regs, uint64_t lr)
     if(lr == (uint64_t)sceSblServiceMailbox_lr_verifySuperBlock)
     {
         uint64_t req[8];
-        copy_from_kernel(req, regs[RDX], 64);
+        if(copy_from_kernel(req, regs[RDX], 64))
+            return 0;
         uint64_t p_eekpfs = 0;
         memcpy(&p_eekpfs, DMEM+req[2]+32, 8);
         uint8_t eekpfs[256] = {0};
@@ -189,11 +196,16 @@ int try_handle_fpkg_mailbox(uint64_t* regs, uint64_t lr)
                 int key2 = register_fake_key(sk);
                 if(key2 >= 0)
                 {
+                    uint32_t fake_resp[4] = {0, 0, IDX_TO_HANDLE(key1), IDX_TO_HANDLE(key2)};
+                    if(copy_to_kernel(regs[RDX], fake_resp, sizeof(fake_resp)))
+                    {
+                        unregister_fake_key(key2);
+                        unregister_fake_key(key1);
+                        return 0;
+                    }
                     regs[RIP] = lr;
                     regs[RAX] = 0;
                     regs[RSP] += 8;
-                    uint32_t fake_resp[4] = {0, 0, IDX_TO_HANDLE(key1), IDX_TO_HANDLE(key2)};
-                    copy_to_kernel(regs[RDX], fake_resp, sizeof(fake_resp));
                 }
                 else
                     unregister_fake_key(key1);
@@ -203,13 +215,17 @@ int try_handle_fpkg_mailbox(uint64_t* regs, uint64_t lr)
     else if(lr == (uint64_t)sceSblServiceMailbox_lr_sceSblPfsClearKey_1
          || lr == (uint64_t)sceSblServiceMailbox_lr_sceSblPfsClearKey_2)
     {
-        uint32_t handle = kpeek64(regs[RDX]+8);
+        uint32_t handle;
+        if(copy_from_kernel(&handle, regs[RDX]+8, sizeof(handle)))
+            return 0;
 
         int key = HANDLE_TO_IDX(handle);
-        if(key >= 0 && unregister_fake_key(key))
+        if(key >= 0)
         {
-            copy_to_kernel(regs[RDX], (const uint64_t[16]){}, 16);
-
+            if(copy_to_kernel(regs[RDX], (const uint64_t[16]){}, 16))
+                return 0;
+            if(!unregister_fake_key(key))
+                return 0;
             regs[RIP] = lr;
             regs[RAX] = 0;
             regs[RSP] += 8;
@@ -249,7 +265,8 @@ void handle_fpkg_trap(uint64_t* regs, uint32_t trapno)
     if(trapno == 1)
     {
         uint64_t frame[12];
-        pop_stack(regs, frame, sizeof(frame));
+        if(pop_stack_checked(regs, frame, sizeof(frame)))
+            return;
         regs[RBX] = frame[7];
         regs[R14] = frame[8];
         regs[R15] = frame[9];
@@ -260,7 +277,8 @@ void handle_fpkg_trap(uint64_t* regs, uint32_t trapno)
     else if(trapno == 2)
     {
         uint64_t frame[6];
-        pop_stack(regs, frame, sizeof(frame));
+        if(pop_stack_checked(regs, frame, sizeof(frame)))
+            return;
         regs[RIP] = (uint64_t)sceSblServiceCryptAsync_deref_singleton;
         handle_crypto_request(regs, frame[5]);
     }
