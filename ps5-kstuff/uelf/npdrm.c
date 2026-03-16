@@ -22,7 +22,8 @@ int aes_cbc_128_decrypt(uint8_t *out, const uint8_t *in, int size, const uint8_t
 {
     int err = -1;
     static int aes_cipher = -1;
-    uelf_fpu_enter();
+    if (uelf_fpu_enter())
+        return -1;
     if (aes_cipher < 0)
     {
         if ((aes_cipher = register_cipher(&aes_desc)) < 0) goto exit;
@@ -37,12 +38,13 @@ exit:
     return err;
 }
 
-int sha256_buffer(const unsigned char *in, unsigned long inlen, unsigned char *out)
+static int sha256_buffer_fpu_held(const unsigned char *in, unsigned long inlen, unsigned char *out)
 {
     hash_state md;
     int err = -1;
 
-    uelf_fpu_enter();
+    if (uelf_fpu_enter())
+        return -1;
     if ((err = sha256_init(&md)) != CRYPT_OK) goto exit;
     if ((err = sha256_process(&md, in, inlen)) != CRYPT_OK) goto exit;
     if ((err = sha256_done(&md, out)) != CRYPT_OK) goto exit;
@@ -67,28 +69,36 @@ int memcmp(const void *s1, const void *s2, size_t n)
 
 int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 {
+    struct {
+        uint32_t cmd;
+        uint32_t _pad;
+        uint64_t rif_pa;
+    } request_hdr;
 #ifndef NPDRM_PORTING
     if (lr != (uint64_t)sceSblServiceMailbox_lr_npdrm_cmd_5 &&
         lr != (uint64_t)sceSblServiceMailbox_lr_npdrm_cmd_6)
     {
         return 0;
     }
+    if (copy_from_kernel(&request_hdr, regs[RDX], sizeof(request_hdr)))
+    {
+        return 1;
+    }
 #else
-    uint32_t cmd;
-    if (copy_from_kernel(&cmd, regs[RDX], sizeof(cmd)))
+    if (copy_from_kernel(&request_hdr, regs[RDX], sizeof(request_hdr)))
     {
         return 0;
     }
     // Other functions may use this same cmd number for different purposes (depending on RDI/handle i believe, however its value changes between fws)
     // for example, sceSblServiceMailbox_lr_decryptSelfBlock also sees cmd 6
     // if we only relied on this, it would work safely because of the later checks, its just wasteful
-    if (cmd != 5 && cmd != 6)
+    if (request_hdr.cmd != 5 && request_hdr.cmd != 6)
     {
         return 0;
     }
 #endif
 
-    uint64_t rif_pa = kpeek64(regs[RDX] + 0x8);
+    uint64_t rif_pa = request_hdr.rif_pa;
 
     struct RifCmd56MemoryLayout layout;
     memcpy(&layout, DMEM + rif_pa, sizeof(layout));
@@ -103,7 +113,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
     }
 
     uint8_t contentid_hash[32];
-    if (sha256_buffer(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
+    if (sha256_buffer_fpu_held(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
     {
 #ifdef NPDRM_PORTING
         return 0;
@@ -124,7 +134,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 
 #ifdef NPDRM_PORTING
     // Now that we know the input data is a (debug) rif, we know we are at the right place
-    log_word(0x10C7100000000001UL + (cmd << 16));
+    log_word(0x10C7100000000001UL + ((uint64_t)request_hdr.cmd << 16));
     log_word(lr);
 #endif
 
@@ -155,7 +165,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
     }
 
 #ifdef NPDRM_PORTING
-    if (cmd == 6)
+    if (request_hdr.cmd == 6)
 #else
     if (lr == (uint64_t)sceSblServiceMailbox_lr_npdrm_cmd_6)
 #endif
@@ -173,13 +183,19 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
         }
 
         // copy both unk10 and unk20
-        copy_to_kernel(regs[RDX] + __builtin_offsetof(struct NpDrmCmd6, unk10), &decrypted_secret[0x70], 0x20);
+        if(copy_to_kernel(regs[RDX] + __builtin_offsetof(struct NpDrmCmd6, unk10), &decrypted_secret[0x70], 0x20))
+        {
+            return 1;
+        }
     }
 
     memcpy(DMEM + rif_pa + __builtin_offsetof(struct RifCmd56MemoryLayout, output), &layout.output, sizeof(layout.output));
 
     uint32_t res = 0;
-    copy_to_kernel(regs[RDX] + 0x4, &res, sizeof(res));
+    if(copy_to_kernel(regs[RDX] + 0x4, &res, sizeof(res)))
+    {
+        return 1;
+    }
 
     regs[RIP] = lr;
     regs[RAX] = 0;
