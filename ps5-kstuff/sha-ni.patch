@@ -1,0 +1,1103 @@
+From d20b252ff694bc3297b0df3c548607fc343a8988 Mon Sep 17 00:00:00 2001
+From: SunnyQeen <sunnyqeen@gmail.com>
+Date: Fri, 20 Mar 2026 23:11:04 +0100
+Subject: sha-ni
+
+
+diff --git a/include/mbedtls/mbedtls_config.h b/include/mbedtls/mbedtls_config.h
+index 75eff2d..176e6b4 100644
+--- a/include/mbedtls/mbedtls_config.h
++++ b/include/mbedtls/mbedtls_config.h
+@@ -3424,6 +3424,36 @@
+  */
+ #define MBEDTLS_SHA1_C
+ 
++/**
++ * \def MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT
++ *
++ * Enable acceleration of the SHA-1 cryptographic hash algorithm
++ * with the x86/x64 SHA extensions (SHA-NI) if they are available at runtime.
++ * If not, the library will fall back to the C implementation.
++ *
++ * \note If MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT is defined when building
++ * for a non-x86/x64 build it will be silently ignored.
++ *
++ * \note Minimum compiler versions for this feature are MSVC 2015,
++ * GCC 4.9, or Clang 3.8.
++ *
++ * \note For GCC/Clang, you may need to compile the SHA-NI code with
++ * \c -msha -msse4.1 flags, or enable SHA-NI support globally with
++ * \c -march=native on supported CPUs.
++ *
++ * \note SHA-NI is supported on Intel processors from Goldmont and Skylake
++ * microarchitectures onwards, and AMD Ryzen processors.
++ *
++ * Requires: MBEDTLS_SHA1_C.
++ *
++ * Module:  library/sha1.c
++ * Module:  library/sha1_x86.c
++ *
++ * Uncomment to have the library check for the x86/x64 SHA-NI extensions
++ * and use them if available.
++ */
++#define MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT
++
+ /**
+  * \def MBEDTLS_SHA224_C
+  *
+@@ -3536,6 +3566,36 @@
+  */
+ //#define MBEDTLS_SHA256_USE_A64_CRYPTO_ONLY
+ 
++/**
++ * \def MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT
++ *
++ * Enable acceleration of the SHA-256 and SHA-224 cryptographic hash algorithms
++ * with the x86/x64 SHA extensions (SHA-NI) if they are available at runtime.
++ * If not, the library will fall back to the C implementation.
++ *
++ * \note If MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT is defined when building
++ * for a non-x86/x64 build it will be silently ignored.
++ *
++ * \note Minimum compiler versions for this feature are MSVC 2015,
++ * GCC 4.9, or Clang 3.8.
++ *
++ * \note For GCC/Clang, you may need to compile the SHA-NI code with
++ * \c -msha -msse4.1 flags, or enable SHA-NI support globally with
++ * \c -march=native on supported CPUs.
++ *
++ * \note SHA-NI is supported on Intel processors from Goldmont and Skylake
++ * microarchitectures onwards, and AMD Ryzen processors.
++ *
++ * Requires: MBEDTLS_SHA256_C.
++ *
++ * Module:  library/sha256.c
++ * Module:  library/sha256_x86.c
++ *
++ * Uncomment to have the library check for the x86/x64 SHA-NI extensions
++ * and use them if available.
++ */
++#define MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT
++
+ /**
+  * \def MBEDTLS_SHA384_C
+  *
+diff --git a/library/CMakeLists.txt b/library/CMakeLists.txt
+index 4834793..c7a4c9d 100644
+--- a/library/CMakeLists.txt
++++ b/library/CMakeLists.txt
+@@ -247,6 +247,27 @@ if(LINK_WITH_TRUSTED_STORAGE)
+     set(libs ${libs} trusted_storage)
+ endif()
+ 
++# Special compilation for SHA-NI hardware acceleration on x86/x64
++# Only include SHA-NI files when targeting x86/x64 architectures (cross-compilation safe)
++if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)|(x86_64)|(i.86)")
++    message(STATUS "Enabling SHA-NI x86/x64 hardware acceleration support")
++
++    # Add SHA-NI source files to the crypto library
++    list(APPEND src_crypto sha1_x86.c sha256_x86.c)
++
++    # Set compiler-specific flags for SHA-NI intrinsics
++    if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
++        # GCC and Clang need explicit flags to enable SHA-NI and SSE4.1 intrinsics
++        set_source_files_properties(sha1_x86.c PROPERTIES COMPILE_FLAGS "-msha -msse4.1")
++        set_source_files_properties(sha256_x86.c PROPERTIES COMPILE_FLAGS "-msha -msse4.1")
++    elseif(CMAKE_C_COMPILER_ID MATCHES "MSVC")
++        # MSVC automatically enables intrinsics based on target architecture
++        # No special flags needed for SHA-NI intrinsics
++    endif()
++else()
++    message(STATUS "SHA-NI x86/x64 acceleration disabled (target architecture: ${CMAKE_SYSTEM_PROCESSOR})")
++endif()
++
+ if (NOT USE_STATIC_MBEDTLS_LIBRARY AND NOT USE_SHARED_MBEDTLS_LIBRARY)
+     message(FATAL_ERROR "Need to choose static or shared mbedtls build!")
+ endif(NOT USE_STATIC_MBEDTLS_LIBRARY AND NOT USE_SHARED_MBEDTLS_LIBRARY)
+diff --git a/library/Makefile b/library/Makefile
+index ad6dea4..101d60d 100644
+--- a/library/Makefile
++++ b/library/Makefile
+@@ -175,11 +175,13 @@ OBJS_CRYPTO= \
+ 	     psa_util.o \
+ 	     ripemd160.o \
+ 	     rsa.o \
+-	     rsa_alt_helpers.o \
+-	     sha1.o \
+-	     sha256.o \
+-	     sha512.o \
+-	     sha3.o \
++		 rsa_alt_helpers.o \
++		 sha1.o \
++		 sha1_x86.o \
++		 sha256.o \
++		 sha256_x86.o \
++		 sha512.o \
++		 sha3.o \
+ 	     threading.o \
+ 	     timing.o \
+ 	     version.o \
+@@ -333,6 +335,15 @@ libmbedcrypto.dll: $(OBJS_CRYPTO)
+ 	echo "  LD    $@"
+ 	$(CC) -shared -Wl,-soname,$@ -Wl,--out-implib,$@.a -o $@ $(OBJS_CRYPTO) -lws2_32 -lwinmm -lgdi32 -static-libgcc $(LOCAL_LDFLAGS) $(LDFLAGS)
+ 
++# Special compilation for SHA-NI with x86/x64 intrinsics
++sha1_x86.o: sha1_x86.c
++	echo "  CC    $< (with SHA-NI)"
++	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -msha -msse4.1 -o $@ -c $<
++
++sha256_x86.o: sha256_x86.c
++	echo "  CC    $< (with SHA-NI)"
++	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -msha -msse4.1 -o $@ -c $<
++
+ .c.o:
+ 	echo "  CC    $<"
+ 	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -o $@ -c $<
+diff --git a/library/sha1.c b/library/sha1.c
+index dfbe481..1af4c56 100644
+--- a/library/sha1.c
++++ b/library/sha1.c
+@@ -232,6 +232,51 @@ int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
+ 
+ #endif /* !MBEDTLS_SHA1_PROCESS_ALT */
+ 
++
++/*
++ * x86/x64 SHA-NI support wrapper  
++ */
++#if !defined(MBEDTLS_SHA1_PROCESS_ALT) && defined(MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT)
++
++#include "sha1_x86.h"
++
++#if defined(MBEDTLS_SHA1_X86_HAVE_CODE)
++
++/* Declare C implementation as external (defined above) */
++extern int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
++                                         const unsigned char data[64]);
++
++static int mbedtls_sha1_x86_support_cached(void)
++{
++    static int done = 0;
++    static int supported = 0;
++
++    if (!done) {
++        supported = mbedtls_sha1_x86_has_support(MBEDTLS_SHA1_X86_SHA_NI);
++        done = 1;
++    }
++
++    return supported;
++}
++
++/* Wrapper function that dispatches to x86 or C */
++static int mbedtls_internal_sha1_process_dispatch(mbedtls_sha1_context *ctx,
++                                                   const unsigned char data[64])
++{
++    if (mbedtls_sha1_x86_support_cached()) {
++        mbedtls_sha1_x86_process(ctx, data, 1);
++        return 0;
++    }
++    return mbedtls_internal_sha1_process(ctx, data);
++}
++
++/* Replace all calls to mbedtls_internal_sha1_process with dispatch */
++#define mbedtls_internal_sha1_process mbedtls_internal_sha1_process_dispatch
++
++#endif /* MBEDTLS_SHA1_X86_HAVE_CODE */
++
++#endif /* !MBEDTLS_SHA1_PROCESS_ALT && MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT */
++
+ /*
+  * SHA-1 process buffer
+  */
+diff --git a/library/sha1_x86.c b/library/sha1_x86.c
+new file mode 100644
+index 0000000..7b19d5e
+--- /dev/null
++++ b/library/sha1_x86.c
+@@ -0,0 +1,268 @@
++/**
++ * \file sha1_x86.c
++ *
++ * \brief SHA-NI (SHA Native Instructions) for hardware SHA-1 acceleration on x86/x64 processors
++ */
++/*
++ *  Copyright The Mbed TLS Contributors
++ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
++ */
++
++#include "common.h"
++
++#if defined(MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT) && \
++    (defined(MBEDTLS_ARCH_IS_X64) || defined(MBEDTLS_ARCH_IS_X86))
++
++#include "mbedtls/sha1.h"
++#include "sha1_x86.h"
++
++#include <string.h>
++
++#if defined(MBEDTLS_SHA1_X86_HAVE_CODE)
++
++#if defined(MBEDTLS_SHA1_X86_HAVE_INTRINSICS)
++
++#if defined(_MSC_VER)
++#include <immintrin.h>
++#include <intrin.h>
++#elif defined(__GNUC__) || defined(__clang__)
++#include <cpuid.h>
++#include <immintrin.h>
++#endif
++
++/*
++ * SHA-1 block processing using SHA-NI intrinsics
++ * Based on Intel's SHA Extensions white paper
++ */
++
++/* Byte-swap 32-bit values in a 128-bit vector */
++#define SHUF_MASK _mm_set_epi64x(0x0001020304050607ULL, 0x08090a0b0c0d0e0fULL)
++
++void mbedtls_sha1_x86_process(mbedtls_sha1_context *ctx,
++                              const unsigned char *data,
++                              size_t blocks)
++{
++    __m128i ABCD, ABCD_SAVE, E0, E0_SAVE, E1;
++    __m128i MSG0, MSG1, MSG2, MSG3;
++    const __m128i MASK = SHUF_MASK;
++
++    /* Load initial state */
++    ABCD = _mm_loadu_si128((__m128i *) &ctx->state[0]);
++    E0 = _mm_set_epi32(ctx->state[4], 0, 0, 0);
++
++    /* Reverse for SHA-1 processing order */
++    ABCD = _mm_shuffle_epi32(ABCD, 0x1B);
++
++    while (blocks > 0) {
++        /* Save current state */
++        ABCD_SAVE = ABCD;
++        E0_SAVE = E0;
++
++        /* Load message blocks and convert endianness */
++        MSG0 = _mm_loadu_si128((__m128i *)(data + 0));
++        MSG0 = _mm_shuffle_epi8(MSG0, MASK);
++        MSG1 = _mm_loadu_si128((__m128i *)(data + 16));
++        MSG1 = _mm_shuffle_epi8(MSG1, MASK);
++        MSG2 = _mm_loadu_si128((__m128i *)(data + 32));
++        MSG2 = _mm_shuffle_epi8(MSG2, MASK);
++        MSG3 = _mm_loadu_si128((__m128i *)(data + 48));
++        MSG3 = _mm_shuffle_epi8(MSG3, MASK);
++
++        /* Rounds 0-3 */
++        E0 = _mm_add_epi32(E0, MSG0);
++        E1 = ABCD;
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 0);
++
++        /* Rounds 4-7 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG1);
++        E0 = ABCD;
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 0);
++        MSG0 = _mm_sha1msg1_epu32(MSG0, MSG1);
++
++        /* Rounds 8-11 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG2);
++        E1 = ABCD;
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 0);
++        MSG1 = _mm_sha1msg1_epu32(MSG1, MSG2);
++        MSG0 = _mm_xor_si128(MSG0, MSG2);
++
++        /* Rounds 12-15 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG3);
++        E0 = ABCD;
++        MSG0 = _mm_sha1msg2_epu32(MSG0, MSG3);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 0);
++        MSG2 = _mm_sha1msg1_epu32(MSG2, MSG3);
++        MSG1 = _mm_xor_si128(MSG1, MSG3);
++
++        /* Rounds 16-19 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG0);
++        E1 = ABCD;
++        MSG1 = _mm_sha1msg2_epu32(MSG1, MSG0);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 0);
++        MSG3 = _mm_sha1msg1_epu32(MSG3, MSG0);
++        MSG2 = _mm_xor_si128(MSG2, MSG0);
++
++        /* Rounds 20-23 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG1);
++        E0 = ABCD;
++        MSG2 = _mm_sha1msg2_epu32(MSG2, MSG1);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 1);
++        MSG0 = _mm_sha1msg1_epu32(MSG0, MSG1);
++        MSG3 = _mm_xor_si128(MSG3, MSG1);
++
++        /* Rounds 24-27 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG2);
++        E1 = ABCD;
++        MSG3 = _mm_sha1msg2_epu32(MSG3, MSG2);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 1);
++        MSG1 = _mm_sha1msg1_epu32(MSG1, MSG2);
++        MSG0 = _mm_xor_si128(MSG0, MSG2);
++
++        /* Rounds 28-31 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG3);
++        E0 = ABCD;
++        MSG0 = _mm_sha1msg2_epu32(MSG0, MSG3);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 1);
++        MSG2 = _mm_sha1msg1_epu32(MSG2, MSG3);
++        MSG1 = _mm_xor_si128(MSG1, MSG3);
++
++        /* Rounds 32-35 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG0);
++        E1 = ABCD;
++        MSG1 = _mm_sha1msg2_epu32(MSG1, MSG0);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 1);
++        MSG3 = _mm_sha1msg1_epu32(MSG3, MSG0);
++        MSG2 = _mm_xor_si128(MSG2, MSG0);
++
++        /* Rounds 36-39 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG1);
++        E0 = ABCD;
++        MSG2 = _mm_sha1msg2_epu32(MSG2, MSG1);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 1);
++        MSG0 = _mm_sha1msg1_epu32(MSG0, MSG1);
++        MSG3 = _mm_xor_si128(MSG3, MSG1);
++
++        /* Rounds 40-43 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG2);
++        E1 = ABCD;
++        MSG3 = _mm_sha1msg2_epu32(MSG3, MSG2);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 2);
++        MSG1 = _mm_sha1msg1_epu32(MSG1, MSG2);
++        MSG0 = _mm_xor_si128(MSG0, MSG2);
++
++        /* Rounds 44-47 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG3);
++        E0 = ABCD;
++        MSG0 = _mm_sha1msg2_epu32(MSG0, MSG3);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 2);
++        MSG2 = _mm_sha1msg1_epu32(MSG2, MSG3);
++        MSG1 = _mm_xor_si128(MSG1, MSG3);
++
++        /* Rounds 48-51 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG0);
++        E1 = ABCD;
++        MSG1 = _mm_sha1msg2_epu32(MSG1, MSG0);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 2);
++        MSG3 = _mm_sha1msg1_epu32(MSG3, MSG0);
++        MSG2 = _mm_xor_si128(MSG2, MSG0);
++
++        /* Rounds 52-55 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG1);
++        E0 = ABCD;
++        MSG2 = _mm_sha1msg2_epu32(MSG2, MSG1);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 2);
++        MSG0 = _mm_sha1msg1_epu32(MSG0, MSG1);
++        MSG3 = _mm_xor_si128(MSG3, MSG1);
++
++        /* Rounds 56-59 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG2);
++        E1 = ABCD;
++        MSG3 = _mm_sha1msg2_epu32(MSG3, MSG2);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 2);
++        MSG1 = _mm_sha1msg1_epu32(MSG1, MSG2);
++        MSG0 = _mm_xor_si128(MSG0, MSG2);
++
++        /* Rounds 60-63 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG3);
++        E0 = ABCD;
++        MSG0 = _mm_sha1msg2_epu32(MSG0, MSG3);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 3);
++        MSG2 = _mm_sha1msg1_epu32(MSG2, MSG3);
++        MSG1 = _mm_xor_si128(MSG1, MSG3);
++
++        /* Rounds 64-67 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG0);
++        E1 = ABCD;
++        MSG1 = _mm_sha1msg2_epu32(MSG1, MSG0);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 3);
++        MSG3 = _mm_sha1msg1_epu32(MSG3, MSG0);
++        MSG2 = _mm_xor_si128(MSG2, MSG0);
++
++        /* Rounds 68-71 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG1);
++        E0 = ABCD;
++        MSG2 = _mm_sha1msg2_epu32(MSG2, MSG1);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 3);
++        MSG3 = _mm_xor_si128(MSG3, MSG1);
++
++        /* Rounds 72-75 */
++        E0 = _mm_sha1nexte_epu32(E0, MSG2);
++        E1 = ABCD;
++        MSG3 = _mm_sha1msg2_epu32(MSG3, MSG2);
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E0, 3);
++
++        /* Rounds 76-79 */
++        E1 = _mm_sha1nexte_epu32(E1, MSG3);
++        E0 = ABCD;
++        ABCD = _mm_sha1rnds4_epu32(ABCD, E1, 3);
++
++        /* Combine with previous state */
++        E0 = _mm_sha1nexte_epu32(E0, E0_SAVE);
++        ABCD = _mm_add_epi32(ABCD, ABCD_SAVE);
++
++        data += 64;
++        blocks--;
++    }
++
++    /* Store state */
++    ABCD = _mm_shuffle_epi32(ABCD, 0x1B);
++    _mm_storeu_si128((__m128i *) &ctx->state[0], ABCD);
++    ctx->state[4] = _mm_extract_epi32(E0, 3);
++}
++
++/*
++ * CPUID detection for SHA-NI support
++ */
++int mbedtls_sha1_x86_has_support(unsigned int what)
++{
++    if (what != MBEDTLS_SHA1_X86_SHA_NI)
++        return 0;
++
++#if defined(_MSC_VER)
++    int info[4];
++    __cpuidex(info, 7, 0);
++    /* SHA extensions are bit 29 of EBX */
++    return (info[1] & (1 << 29)) != 0;
++#elif defined(__GNUC__) || defined(__clang__)
++    unsigned int CPUInfo[4];
++
++    /* Check if CPUID leaf 7 is supported */
++    __cpuid(0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
++    if (CPUInfo[0] < 7)
++        return 0;
++
++    /* Get extended features */
++    __cpuid_count(7, 0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
++
++    /* SHA extensions are bit 29 of EBX */
++    return (CPUInfo[1] & (1 << 29)) != 0;
++#else
++    return 0;
++#endif
++}
++
++#endif /* MBEDTLS_SHA1_X86_HAVE_INTRINSICS */
++
++#endif /* MBEDTLS_SHA1_X86_HAVE_CODE */
++
++#endif /* defined(MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT) && (X64 || X86) */
+diff --git a/library/sha1_x86.h b/library/sha1_x86.h
+new file mode 100644
+index 0000000..26c29b7
+--- /dev/null
++++ b/library/sha1_x86.h
+@@ -0,0 +1,89 @@
++/**
++ * \file sha1_x86.h
++ *
++ * \brief SHA-NI (SHA Native Instructions) for hardware SHA-1 acceleration on x86/x64 processors
++ *
++ * \warning These functions are only for internal use by other library
++ *          functions; you must not call them directly.
++ */
++/*
++ *  Copyright The Mbed TLS Contributors
++ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
++ */
++#ifndef MBEDTLS_SHA1_X86_H
++#define MBEDTLS_SHA1_X86_H
++
++#include "mbedtls/build_info.h"
++
++#include "mbedtls/sha1.h"
++
++#define MBEDTLS_SHA1_X86_SHA_NI      0x20000000u
++
++#if defined(MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT) && \
++    (defined(MBEDTLS_ARCH_IS_X64) || defined(MBEDTLS_ARCH_IS_X86))
++
++/* Can we do SHA-NI with intrinsics?
++ * (Only implemented with certain compilers, only for certain targets.)
++ */
++#undef MBEDTLS_SHA1_X86_HAVE_INTRINSICS
++#if defined(_MSC_VER) && !defined(__clang__)
++/* Visual Studio supports SHA intrinsics since VS 2015. */
++#if _MSC_VER >= 1900
++#define MBEDTLS_SHA1_X86_HAVE_INTRINSICS
++#endif
++#endif
++/* GCC-like compilers: currently, we only support intrinsics if the requisite
++ * target flag is enabled when building the library (e.g. `gcc -msha -msse4.1`
++ * or `clang -msha -msse4.1`). */
++#if (defined(__GNUC__) || defined(__clang__)) && defined(__SHA__)
++#define MBEDTLS_SHA1_X86_HAVE_INTRINSICS
++#endif
++
++#if defined(MBEDTLS_SHA1_X86_HAVE_INTRINSICS)
++#define MBEDTLS_SHA1_X86_HAVE_CODE 1 // via intrinsics
++#endif
++
++#if defined(MBEDTLS_SHA1_X86_HAVE_CODE)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * \brief          Internal function to detect the SHA-NI feature in CPUs.
++ *
++ * \note           This function is only for internal use by other library
++ *                 functions; you must not call it directly.
++ *
++ * \param what     The feature to detect
++ *                 (MBEDTLS_SHA1_X86_SHA_NI)
++ *
++ * \return         1 if CPU has support for the feature, 0 otherwise
++ */
++int mbedtls_sha1_x86_has_support(unsigned int what);
++
++/**
++ * \brief          Internal SHA-NI SHA-1 block processing
++ *
++ * \note           This function is only for internal use by other library
++ *                 functions; you must not call it directly.
++ *
++ * \param ctx      SHA-1 context
++ * \param data     Buffer holding one or more blocks of data
++ * \param blocks   Number of blocks to process
++ *
++ * \return         0 on success
++ */
++void mbedtls_sha1_x86_process(mbedtls_sha1_context *ctx,
++                              const unsigned char *data,
++                              size_t blocks);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* MBEDTLS_SHA1_X86_HAVE_CODE */
++
++#endif /* defined(MBEDTLS_SHA1_USE_X86_SHA_NI_IF_PRESENT) && (X64 || X86) */
++
++#endif /* MBEDTLS_SHA1_X86_H */
+diff --git a/library/sha256.c b/library/sha256.c
+index 159accc..3ce7596 100644
+--- a/library/sha256.c
++++ b/library/sha256.c
+@@ -447,7 +447,8 @@ int mbedtls_internal_sha256_process_a64_crypto(mbedtls_sha256_context *ctx,
+ #undef MBEDTLS_POP_TARGET_PRAGMA
+ #endif
+ 
+-#if !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT)
++#if !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT) && \
++    !defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT)
+ #define mbedtls_internal_sha256_process_many_c mbedtls_internal_sha256_process_many
+ #define mbedtls_internal_sha256_process_c      mbedtls_internal_sha256_process
+ #endif
+@@ -601,6 +602,93 @@ static size_t mbedtls_internal_sha256_process_many_c(
+ #endif /* !MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_ONLY */
+ 
+ 
++/*
++ * x86/x64 SHA-NI support
++ */
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT)
++
++#include "sha256_x86.h"
++
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++
++static int mbedtls_sha256_x86_has_support_cached(void)
++{
++    static int done = 0;
++    static int supported = 0;
++
++    if (!done) {
++        supported = mbedtls_sha256_x86_has_support(MBEDTLS_SHA256_X86_SHA_NI);
++        done = 1;
++    }
++
++    return supported;
++}
++
++static size_t mbedtls_internal_sha256_process_many_x86(mbedtls_sha256_context *ctx,
++                                                       const uint8_t *msg, size_t len)
++{
++    size_t processed = 0;
++
++    while (len >= SHA256_BLOCK_SIZE) {
++        size_t blocks = len / SHA256_BLOCK_SIZE;
++        /* Limit blocks to prevent potential overflow */
++        if (blocks > 65536) {
++            blocks = 65536;
++        }
++
++        mbedtls_sha256_x86_process(ctx, msg + processed, blocks);
++
++        size_t bytes = blocks * SHA256_BLOCK_SIZE;
++        processed += bytes;
++        len -= bytes;
++    }
++
++    return processed;
++}
++
++static int mbedtls_internal_sha256_process_x86(mbedtls_sha256_context *ctx,
++                                               const unsigned char data[SHA256_BLOCK_SIZE])
++{
++    mbedtls_sha256_x86_process(ctx, data, 1);
++    return 0;
++}
++
++#endif /* MBEDTLS_SHA256_X86_HAVE_CODE */
++
++#endif /* MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT */
++
++
++/*
++ * Dispatch functions for x86 SHA-NI (independent of ARM support)
++ */
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT) && \
++    !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT)
++
++static size_t mbedtls_internal_sha256_process_many(mbedtls_sha256_context *ctx,
++                                                   const uint8_t *msg, size_t len)
++{
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++    if (mbedtls_sha256_x86_has_support_cached()) {
++        return mbedtls_internal_sha256_process_many_x86(ctx, msg, len);
++    }
++#endif
++    return mbedtls_internal_sha256_process_many_c(ctx, msg, len);
++}
++
++int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
++                                    const unsigned char data[SHA256_BLOCK_SIZE])
++{
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++    if (mbedtls_sha256_x86_has_support_cached()) {
++        return mbedtls_internal_sha256_process_x86(ctx, data);
++    }
++#endif
++    return mbedtls_internal_sha256_process_c(ctx, data);
++}
++
++#endif /* MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT && !MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT */
++
++
+ #if defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT)
+ 
+ static int mbedtls_a64_crypto_sha256_has_support(void)
+@@ -619,6 +707,13 @@ static int mbedtls_a64_crypto_sha256_has_support(void)
+ static size_t mbedtls_internal_sha256_process_many(mbedtls_sha256_context *ctx,
+                                                    const uint8_t *msg, size_t len)
+ {
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT)
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++    if (mbedtls_sha256_x86_has_support_cached()) {
++        return mbedtls_internal_sha256_process_many_x86(ctx, msg, len);
++    }
++#endif
++#endif
+     if (mbedtls_a64_crypto_sha256_has_support()) {
+         return mbedtls_internal_sha256_process_many_a64_crypto(ctx, msg, len);
+     } else {
+@@ -629,6 +724,13 @@ static size_t mbedtls_internal_sha256_process_many(mbedtls_sha256_context *ctx,
+ int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
+                                     const unsigned char data[SHA256_BLOCK_SIZE])
+ {
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT)
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++    if (mbedtls_sha256_x86_has_support_cached()) {
++        return mbedtls_internal_sha256_process_x86(ctx, data);
++    }
++#endif
++#endif
+     if (mbedtls_a64_crypto_sha256_has_support()) {
+         return mbedtls_internal_sha256_process_a64_crypto(ctx, data);
+     } else {
+diff --git a/library/sha256_x86.c b/library/sha256_x86.c
+new file mode 100644
+index 0000000..9af428a
+--- /dev/null
++++ b/library/sha256_x86.c
+@@ -0,0 +1,272 @@
++/**
++ * \file sha256_x86.c
++ *
++ * \brief SHA-NI (SHA Native Instructions) for hardware SHA-256 acceleration on x86/x64 processors
++ */
++/*
++ *  Copyright The Mbed TLS Contributors
++ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
++ */
++
++#include "common.h"
++
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT) && \
++    (defined(MBEDTLS_ARCH_IS_X64) || defined(MBEDTLS_ARCH_IS_X86))
++
++#include "mbedtls/sha256.h"
++#include "sha256_x86.h"
++
++#include <string.h>
++
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++
++#if defined(MBEDTLS_SHA256_X86_HAVE_INTRINSICS)
++
++#if defined(_MSC_VER)
++#include <immintrin.h>
++#include <intrin.h>
++#elif defined(__GNUC__) || defined(__clang__)
++#include <cpuid.h>
++#include <immintrin.h>
++#endif
++
++/*
++ * SHA-256 block processing using SHA-NI intrinsics
++ * Based on the algorithm from Intel's SHA Extensions white paper
++ */
++
++/* Byte-swap 32-bit values in a 128-bit vector */
++#define SHUF_MASK _mm_set_epi64x(0x0c0d0e0f08090a0bULL, 0x0405060700010203ULL)
++
++void mbedtls_sha256_x86_process(mbedtls_sha256_context *ctx,
++                                const unsigned char *data,
++                                size_t blocks)
++{
++    __m128i STATE0, STATE1;
++    __m128i MSG, TMP;
++    __m128i MSG0, MSG1, MSG2, MSG3;
++    __m128i ABEF_SAVE, CDGH_SAVE;
++    const __m128i MASK = SHUF_MASK;
++
++    /* Load state */
++    TMP = _mm_loadu_si128((__m128i *) &ctx->state[0]);
++    STATE1 = _mm_loadu_si128((__m128i *) &ctx->state[4]);
++
++    TMP = _mm_shuffle_epi32(TMP, 0xB1);        /* CDAB */
++    STATE1 = _mm_shuffle_epi32(STATE1, 0x1B);  /* EFGH */
++    STATE0 = _mm_alignr_epi8(TMP, STATE1, 8);  /* ABEF */
++    STATE1 = _mm_blend_epi16(STATE1, TMP, 0xF0); /* CDGH */
++
++    while (blocks > 0) {
++        /* Save current state */
++        ABEF_SAVE = STATE0;
++        CDGH_SAVE = STATE1;
++
++        /* Load message blocks and convert endianness */
++        MSG0 = _mm_loadu_si128((__m128i *)(data + 0));
++        MSG0 = _mm_shuffle_epi8(MSG0, MASK);
++        MSG1 = _mm_loadu_si128((__m128i *)(data + 16));
++        MSG1 = _mm_shuffle_epi8(MSG1, MASK);
++        MSG2 = _mm_loadu_si128((__m128i *)(data + 32));
++        MSG2 = _mm_shuffle_epi8(MSG2, MASK);
++        MSG3 = _mm_loadu_si128((__m128i *)(data + 48));
++        MSG3 = _mm_shuffle_epi8(MSG3, MASK);
++
++        /* Rounds 0-3 */
++        MSG = _mm_add_epi32(MSG0, _mm_set_epi64x(0xE9B5DBA5B5C0FBCFULL, 0x71374491428A2F98ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++
++        /* Rounds 4-7 */
++        MSG = _mm_add_epi32(MSG1, _mm_set_epi64x(0xAB1C5ED5923F82A4ULL, 0x59F111F13956C25BULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
++
++        /* Rounds 8-11 */
++        MSG = _mm_add_epi32(MSG2, _mm_set_epi64x(0x550C7DC3243185BEULL, 0x12835B01D807AA98ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
++
++        /* Rounds 12-15 */
++        MSG = _mm_add_epi32(MSG3, _mm_set_epi64x(0xC19BF1749BDC06A7ULL, 0x80DEB1FE72BE5D74ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG3, MSG2, 4);
++        MSG0 = _mm_add_epi32(MSG0, TMP);
++        MSG0 = _mm_sha256msg2_epu32(MSG0, MSG3);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
++
++        /* Rounds 16-19 */
++        MSG = _mm_add_epi32(MSG0, _mm_set_epi64x(0x240CA1CC0FC19DC6ULL, 0xEFBE4786E49B69C1ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG0, MSG3, 4);
++        MSG1 = _mm_add_epi32(MSG1, TMP);
++        MSG1 = _mm_sha256msg2_epu32(MSG1, MSG0);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
++
++        /* Rounds 20-23 */
++        MSG = _mm_add_epi32(MSG1, _mm_set_epi64x(0x76F988DA5CB0A9DCULL, 0x4A7484AA2DE92C6FULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG1, MSG0, 4);
++        MSG2 = _mm_add_epi32(MSG2, TMP);
++        MSG2 = _mm_sha256msg2_epu32(MSG2, MSG1);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
++
++        /* Rounds 24-27 */
++        MSG = _mm_add_epi32(MSG2, _mm_set_epi64x(0xBF597FC7B00327C8ULL, 0xA831C66D983E5152ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG2, MSG1, 4);
++        MSG3 = _mm_add_epi32(MSG3, TMP);
++        MSG3 = _mm_sha256msg2_epu32(MSG3, MSG2);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
++
++        /* Rounds 28-31 */
++        MSG = _mm_add_epi32(MSG3, _mm_set_epi64x(0x1429296706CA6351ULL, 0xD5A79147C6E00BF3ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG3, MSG2, 4);
++        MSG0 = _mm_add_epi32(MSG0, TMP);
++        MSG0 = _mm_sha256msg2_epu32(MSG0, MSG3);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
++
++        /* Rounds 32-35 */
++        MSG = _mm_add_epi32(MSG0, _mm_set_epi64x(0x53380D134D2C6DFCULL, 0x2E1B213827B70A85ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG0, MSG3, 4);
++        MSG1 = _mm_add_epi32(MSG1, TMP);
++        MSG1 = _mm_sha256msg2_epu32(MSG1, MSG0);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
++
++        /* Rounds 36-39 */
++        MSG = _mm_add_epi32(MSG1, _mm_set_epi64x(0x92722C8581C2C92EULL, 0x766A0ABB650A7354ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG1, MSG0, 4);
++        MSG2 = _mm_add_epi32(MSG2, TMP);
++        MSG2 = _mm_sha256msg2_epu32(MSG2, MSG1);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
++
++        /* Rounds 40-43 */
++        MSG = _mm_add_epi32(MSG2, _mm_set_epi64x(0xC76C51A3C24B8B70ULL, 0xA81A664BA2BFE8A1ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG2, MSG1, 4);
++        MSG3 = _mm_add_epi32(MSG3, TMP);
++        MSG3 = _mm_sha256msg2_epu32(MSG3, MSG2);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
++
++        /* Rounds 44-47 */
++        MSG = _mm_add_epi32(MSG3, _mm_set_epi64x(0x106AA070F40E3585ULL, 0xD6990624D192E819ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG3, MSG2, 4);
++        MSG0 = _mm_add_epi32(MSG0, TMP);
++        MSG0 = _mm_sha256msg2_epu32(MSG0, MSG3);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
++
++        /* Rounds 48-51 */
++        MSG = _mm_add_epi32(MSG0, _mm_set_epi64x(0x34B0BCB52748774CULL, 0x1E376C0819A4C116ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG0, MSG3, 4);
++        MSG1 = _mm_add_epi32(MSG1, TMP);
++        MSG1 = _mm_sha256msg2_epu32(MSG1, MSG0);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
++
++        /* Rounds 52-55 */
++        MSG = _mm_add_epi32(MSG1, _mm_set_epi64x(0x682E6FF35B9CCA4FULL, 0x4ED8AA4A391C0CB3ULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG1, MSG0, 4);
++        MSG2 = _mm_add_epi32(MSG2, TMP);
++        MSG2 = _mm_sha256msg2_epu32(MSG2, MSG1);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++
++        /* Rounds 56-59 */
++        MSG = _mm_add_epi32(MSG2, _mm_set_epi64x(0x8CC7020884C87814ULL, 0x78A5636F748F82EEULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        TMP = _mm_alignr_epi8(MSG2, MSG1, 4);
++        MSG3 = _mm_add_epi32(MSG3, TMP);
++        MSG3 = _mm_sha256msg2_epu32(MSG3, MSG2);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++
++        /* Rounds 60-63 */
++        MSG = _mm_add_epi32(MSG3, _mm_set_epi64x(0xC67178F2BEF9A3F7ULL, 0xA4506CEB90BEFFFAULL));
++        STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG);
++        MSG = _mm_shuffle_epi32(MSG, 0x0E);
++        STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG);
++
++        /* Combine with previous state */
++        STATE0 = _mm_add_epi32(STATE0, ABEF_SAVE);
++        STATE1 = _mm_add_epi32(STATE1, CDGH_SAVE);
++
++        data += 64;
++        blocks--;
++    }
++
++    /* Store state */
++    TMP = _mm_shuffle_epi32(STATE0, 0x1B);     /* FEBA */
++    STATE1 = _mm_shuffle_epi32(STATE1, 0xB1);  /* DCHG */
++    STATE0 = _mm_blend_epi16(TMP, STATE1, 0xF0); /* DCBA */
++    STATE1 = _mm_alignr_epi8(STATE1, TMP, 8);  /* HGFE */
++
++    _mm_storeu_si128((__m128i *) &ctx->state[0], STATE0);
++    _mm_storeu_si128((__m128i *) &ctx->state[4], STATE1);
++}
++
++/*
++ * CPUID detection for SHA-NI support
++ */
++int mbedtls_sha256_x86_has_support(unsigned int what)
++{
++    if (what != MBEDTLS_SHA256_X86_SHA_NI)
++        return 0;
++
++#if defined(_MSC_VER)
++    int info[4];
++    __cpuidex(info, 7, 0);
++    /* SHA extensions are bit 29 of EBX */
++    return (info[1] & (1 << 29)) != 0;
++#elif defined(__GNUC__) || defined(__clang__)
++    unsigned int CPUInfo[4];
++
++    /* Check if CPUID leaf 7 is supported */
++    __cpuid(0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
++    if (CPUInfo[0] < 7)
++        return 0;
++
++    /* Get extended features */
++    __cpuid_count(7, 0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
++
++    /* SHA extensions are bit 29 of EBX */
++    return (CPUInfo[1] & (1 << 29)) != 0;
++#else
++    return 0;
++#endif
++}
++
++#endif /* MBEDTLS_SHA256_X86_HAVE_INTRINSICS */
++
++#endif /* MBEDTLS_SHA256_X86_HAVE_CODE */
++
++#endif /* defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT) && (X64 || X86) */
+diff --git a/library/sha256_x86.h b/library/sha256_x86.h
+new file mode 100644
+index 0000000..876049f
+--- /dev/null
++++ b/library/sha256_x86.h
+@@ -0,0 +1,89 @@
++/**
++ * \file sha256_x86.h
++ *
++ * \brief SHA-NI (SHA Native Instructions) for hardware SHA-256 acceleration on x86/x64 processors
++ *
++ * \warning These functions are only for internal use by other library
++ *          functions; you must not call them directly.
++ */
++/*
++ *  Copyright The Mbed TLS Contributors
++ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
++ */
++#ifndef MBEDTLS_SHA256_X86_H
++#define MBEDTLS_SHA256_X86_H
++
++#include "mbedtls/build_info.h"
++
++#include "mbedtls/sha256.h"
++
++#define MBEDTLS_SHA256_X86_SHA_NI      0x20000000u
++
++#if defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT) && \
++    (defined(MBEDTLS_ARCH_IS_X64) || defined(MBEDTLS_ARCH_IS_X86))
++
++/* Can we do SHA-NI with intrinsics?
++ * (Only implemented with certain compilers, only for certain targets.)
++ */
++#undef MBEDTLS_SHA256_X86_HAVE_INTRINSICS
++#if defined(_MSC_VER) && !defined(__clang__)
++/* Visual Studio supports SHA intrinsics since VS 2015. */
++#if _MSC_VER >= 1900
++#define MBEDTLS_SHA256_X86_HAVE_INTRINSICS
++#endif
++#endif
++/* GCC-like compilers: currently, we only support intrinsics if the requisite
++ * target flag is enabled when building the library (e.g. `gcc -msha -msse4.1`
++ * or `clang -msha -msse4.1`). */
++#if (defined(__GNUC__) || defined(__clang__)) && defined(__SHA__)
++#define MBEDTLS_SHA256_X86_HAVE_INTRINSICS
++#endif
++
++#if defined(MBEDTLS_SHA256_X86_HAVE_INTRINSICS)
++#define MBEDTLS_SHA256_X86_HAVE_CODE 1 // via intrinsics
++#endif
++
++#if defined(MBEDTLS_SHA256_X86_HAVE_CODE)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * \brief          Internal function to detect the SHA-NI feature in CPUs.
++ *
++ * \note           This function is only for internal use by other library
++ *                 functions; you must not call it directly.
++ *
++ * \param what     The feature to detect
++ *                 (MBEDTLS_SHA256_X86_SHA_NI)
++ *
++ * \return         1 if CPU has support for the feature, 0 otherwise
++ */
++int mbedtls_sha256_x86_has_support(unsigned int what);
++
++/**
++ * \brief          Internal SHA-NI SHA-256 block processing
++ *
++ * \note           This function is only for internal use by other library
++ *                 functions; you must not call it directly.
++ *
++ * \param ctx      SHA-256 context
++ * \param data     Buffer holding one or more blocks of data
++ * \param blocks   Number of blocks to process
++ *
++ * \return         0 on success
++ */
++void mbedtls_sha256_x86_process(mbedtls_sha256_context *ctx,
++                                const unsigned char *data,
++                                size_t blocks);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* MBEDTLS_SHA256_X86_HAVE_CODE */
++
++#endif /* defined(MBEDTLS_SHA256_USE_X86_SHA_NI_IF_PRESENT) && (X64 || X86) */
++
++#endif /* MBEDTLS_SHA256_X86_H */
+diff --git a/visualc/VS2017/mbedTLS.vcxproj b/visualc/VS2017/mbedTLS.vcxproj
+index fdc25a6..31da1f7 100644
+--- a/visualc/VS2017/mbedTLS.vcxproj
++++ b/visualc/VS2017/mbedTLS.vcxproj
+@@ -425,7 +425,9 @@
+     <ClCompile Include="..\..\library\rsa.c" />
+     <ClCompile Include="..\..\library\rsa_alt_helpers.c" />
+     <ClCompile Include="..\..\library\sha1.c" />
++    <ClCompile Include="..\..\library\sha1_x86.c" />
+     <ClCompile Include="..\..\library\sha256.c" />
++    <ClCompile Include="..\..\library\sha256_x86.c" />
+     <ClCompile Include="..\..\library\sha3.c" />
+     <ClCompile Include="..\..\library\sha512.c" />
+     <ClCompile Include="..\..\library\ssl_cache.c" />
