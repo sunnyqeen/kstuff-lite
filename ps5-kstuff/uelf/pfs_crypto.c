@@ -39,7 +39,7 @@ int pfs_derive_fake_keys(const uint8_t* p_eekpfs, const uint8_t* crypt_seed, uin
     mbedtls_rsa_import_raw(&rsa, ypkg_n, sizeof(ypkg_n), NULL, 0, NULL, 0, NULL, 0, ypkg_d, sizeof(ypkg_d));
     mbedtls_rsa_complete(&rsa);
 
-    if(!mbedtls_rsa_public(&rsa, p_eekpfs, eekpfs))
+    if(mbedtls_rsa_public(&rsa, p_eekpfs, eekpfs))
         goto exit;
     if(eekpfs[0] != 0 || eekpfs[1] != 2)
         goto exit;
@@ -102,17 +102,26 @@ int pfs_xts_virtual(uint64_t dst, uint64_t src, const uint8_t* key, uint64_t sta
     mbedtls_aes_xts_init(&xts);
     memcpy(xts_key, key + 16, 16);
     memcpy(xts_key + 16, key, 16);
-    mbedtls_aes_xts_setkey_enc(&xts, xts_key, 256);
+
+    int mode;
+    if (is_encrypt)
+    {
+        mode = MBEDTLS_AES_ENCRYPT;
+        mbedtls_aes_xts_setkey_enc(&xts, xts_key, 256);
+    }
+    else
+    {
+        mode = MBEDTLS_AES_DECRYPT;
+        mbedtls_aes_xts_setkey_dec(&xts, xts_key, 256);
+    }
+
     while(count--)
     {
         static uint8_t input[SECTOR_SIZE], output[SECTOR_SIZE];
         uint64_t tweak[2] = {start, 0};
         if(copy_from_kernel(input, src, SECTOR_SIZE))
             goto exit;
-        if(is_encrypt)
-            mbedtls_aes_crypt_xts(&xts, MBEDTLS_AES_ENCRYPT, SECTOR_SIZE, (const uint8_t*)tweak, input, output);
-        else
-            mbedtls_aes_crypt_xts(&xts, MBEDTLS_AES_DECRYPT, SECTOR_SIZE, (const uint8_t*)tweak, input, output);
+        mbedtls_aes_crypt_xts(&xts, mode, SECTOR_SIZE, (const uint8_t*)tweak, input, output);
         if(copy_to_kernel(dst, output, SECTOR_SIZE))
             goto exit;
         dst += SECTOR_SIZE;
