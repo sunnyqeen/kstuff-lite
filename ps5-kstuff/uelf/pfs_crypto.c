@@ -154,7 +154,8 @@ static int pfs_gen_key(uint32_t idx, const uint8_t* seed, const uint8_t* ekpfs, 
 
 int pfs_derive_fake_keys(const uint8_t* p_eekpfs, const uint8_t* crypt_seed, uint8_t* ek, uint8_t* sk)
 {
-    uelf_fpu_enter();
+    if(uelf_fpu_enter())
+        return 0;
     int ans = 0;
     uint8_t eekpfs[256];
     memcpy(eekpfs, p_eekpfs, 256);
@@ -183,7 +184,8 @@ int pfs_hmac_virtual(struct crypto_request_cache* cache, uint8_t* out, int key_i
 {
     struct virt2phys_local_cache data_cache = {0};
     struct uelf_sha256_context ctx;
-    uelf_fpu_enter();
+    if(uelf_fpu_enter())
+        return -1;
     const struct hmac_sha256_cache_entry* hmac_keys;
     if(get_hmac_sha256_cache_entry(cache, key_id, key, &hmac_keys))
     {
@@ -211,7 +213,7 @@ int pfs_hmac_virtual(struct crypto_request_cache* cache, uint8_t* out, int key_i
         data += chk;
         data_size -= chk;
     }
-    if(hmac_sha256_finalize(&hmac_keys->inner_ctx, &hmac_keys->outer_ctx, &ctx, out))
+    if(hmac_sha256_finalize(&hmac_keys->outer_ctx, &ctx, out))
     {
         uelf_fpu_exit();
         return -1;
@@ -282,7 +284,8 @@ int pfs_xts_virtual(struct crypto_request_cache* cache, uint64_t dst, uint64_t s
     struct virt2phys_local_cache src_cache = {0};
     struct virt2phys_local_cache dst_cache = {0};
     int ans = -1;
-    uelf_fpu_enter();
+    if(uelf_fpu_enter())
+        return -1;
     if(get_xts_key_cache_entry(cache, key_id, key, &xts_keys))
         goto exit;
     while(count)
@@ -335,6 +338,7 @@ int pfs_xts_virtual(struct crypto_request_cache* cache, uint64_t dst, uint64_t s
         dst += SECTOR_SIZE;
         src += SECTOR_SIZE;
         start++;
+        count--;
     }
     ans = 0;
 exit:
