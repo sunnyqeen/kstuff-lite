@@ -29,11 +29,9 @@ static struct
     int valid;
 } s_rif_debug_key_schedule;
 
-static int aes_cbc_128_decrypt_rif_debug(uint8_t *out, const uint8_t *in, int size, const uint8_t *iv)
+static int aes_cbc_128_decrypt_rif_debug_fpu_held(uint8_t *out, const uint8_t *in, int size, const uint8_t *iv)
 {
     int err = -1;
-    if (uelf_fpu_enter())
-        return -1;
     if (!s_rif_debug_key_schedule.valid)
     {
         if (isal_aes_keyexp_128(rif_debug_key, s_rif_debug_key_schedule.enc_exp_key,
@@ -45,17 +43,14 @@ static int aes_cbc_128_decrypt_rif_debug(uint8_t *out, const uint8_t *in, int si
         goto exit;
     err = 0;
 exit:
-    uelf_fpu_exit();
     return err;
 }
 
-int sha256_buffer(const unsigned char *in, unsigned long inlen, unsigned char *out)
+static int sha256_buffer_fpu_held(const unsigned char *in, unsigned long inlen, unsigned char *out)
 {
     struct uelf_sha256_context ctx;
     int err = -1;
 
-    if (uelf_fpu_enter())
-        return -1;
     uelf_sha256_init(&ctx);
     if(uelf_sha256_update(&ctx, in, inlen))
         goto exit;
@@ -63,7 +58,6 @@ int sha256_buffer(const unsigned char *in, unsigned long inlen, unsigned char *o
         goto exit;
     err = 0;
 exit:
-    uelf_fpu_exit();
     return err;
 }
 
@@ -135,7 +129,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 #endif
     }
     uint8_t contentid_hash[32];
-    if (sha256_buffer(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
+    if (sha256_buffer_fpu_held(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
     {
         uelf_fpu_exit();
 #ifdef NPDRM_PORTING
@@ -193,14 +187,14 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 #else
     if (lr == (uint64_t)sceSblServiceMailbox_lr_npdrm_cmd_6)
 #endif
-    {
-        uint8_t decrypted_secret[sizeof(layout.rif.rifSecret)];
-        if (aes_cbc_128_decrypt_rif_debug(decrypted_secret, layout.rif.rifSecret,
-                                          sizeof(layout.rif.rifSecret), layout.rif.rifIv))
         {
-            uelf_fpu_exit();
-            return 1;
-        }
+            uint8_t decrypted_secret[sizeof(layout.rif.rifSecret)];
+            if (aes_cbc_128_decrypt_rif_debug_fpu_held(decrypted_secret, layout.rif.rifSecret,
+                                                       sizeof(layout.rif.rifSecret), layout.rif.rifIv))
+            {
+                uelf_fpu_exit();
+                return 1;
+            }
 
         if (memcmp(contentid_hash + 16, decrypted_secret, 16) != 0)
         {
