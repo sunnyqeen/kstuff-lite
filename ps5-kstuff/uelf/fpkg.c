@@ -6,6 +6,7 @@
 #include "log.h"
 #include "pfs_crypto.h"
 #include "fakekeys.h"
+#include "fpu.h"
 
 extern char sceSblServiceMailbox[];
 extern char sceSblServiceMailbox_lr_verifySuperBlock[];
@@ -17,6 +18,16 @@ extern char doreti_iret[];
 
 #define IDX_TO_HANDLE(x) (0x13374100 | ((uint8_t)((x)+1)))
 #define HANDLE_TO_IDX(x) ((((x) & 0xffffff00) == 0x13374100 ? ((int)(uint8_t)(x)) : (int)0) - 1)
+
+struct crypto_message_result
+{
+    int emulated_messages;
+    uint64_t next_msg;
+    int status;
+    int total_messages;
+};
+
+static struct crypto_request_cache s_crypto_request_cache;
 
 static int crypto_request_emulated(uint64_t* regs, uint64_t msg, uint32_t status)
 {
@@ -33,64 +44,134 @@ static int crypto_request_emulated(uint64_t* regs, uint64_t msg, uint32_t status
     return 1;
 }
 
-static int handle_crypto_message(uint64_t* regs, uint64_t msg, uint64_t bytes_cap, uint64_t* bytes_handled)
+static int read_crypto_message(uint64_t msg, uint64_t msg_data[21])
 {
-    uint64_t msg_data[21];
-    copy_from_kernel(msg_data, msg, sizeof(msg_data));
+    return copy_from_kernel(msg_data, msg, sizeof(uint64_t) * 21);
+}
+
+static int is_hmac_message(const uint64_t msg_data[21])
+{
+    return (msg_data[0] & 0x7fffffff) == 0x9132000;
+}
+
+static int is_xts_message(const uint64_t msg_data[21])
+{
+    return (msg_data[0] & 0x7ffff7ff) == 0x2108000;
+}
+
+static struct crypto_message_result handle_non_xts_message(uint64_t msg, const uint64_t msg_data[21],
+                                                           uint64_t bytes_cap, uint64_t* bytes_handled,
+                                                           struct crypto_request_cache* cache)
+{
+    struct crypto_message_result result = {
+        .emulated_messages = 0,
+        .next_msg = kpeek64(msg + 320),
+        .status = ENOSYS,
+        .total_messages = 1,
+    };
+
     if((msg_data[0] & 0x7fffffff) == 0x9132000) // SHA256HMAC with key handle
     {
         int idx = HANDLE_TO_IDX(msg_data[20]);
-        //log_word(0xfee10006dead0000|(uint16_t)idx);
         if(idx < 0)
-            return ENOSYS;
+            return result;
         uint8_t key[32];
         if(!get_fake_key(idx, key))
-            return ENOSYS;
+            return result;
         if(msg_data[3] != msg_data[1] * 8)
-            return ENOSYS;
-        //log_word(0xdead0006dead0007);
+            return result;
         uint8_t hash[32] = {0};
         *bytes_handled += msg_data[1];
-        if(bytes_cap < *bytes_handled && pfs_hmac_virtual(hash, key, msg_data[2], msg_data[1]))
-            return -1;
+        if(bytes_cap < *bytes_handled && pfs_hmac_virtual(cache, hash, idx, key, msg_data[2], msg_data[1]))
+        {
+            result.emulated_messages = 1;
+            result.status = -1;
+            return result;
+        }
         if(copy_to_kernel(msg+32, hash, 32))
         {
-            return -1;
+            result.emulated_messages = 1;
+            result.status = -1;
+            return result;
         }
-        return 0;
+        result.emulated_messages = 1;
+        result.status = 0;
+        return result;
     }
-    else if((msg_data[0] & 0x7ffff7ff) == 0x2108000) // AES-XTS decrypt/encrypt with key handle
+    return result;
+}
+
+static struct crypto_message_result handle_xts_message_run(uint64_t msg, const uint64_t first_msg_data[21],
+                                                           uint64_t bytes_cap, uint64_t* bytes_handled,
+                                                           struct crypto_request_cache* cache)
+{
+    struct crypto_message_result result = {
+        .emulated_messages = 0,
+        .next_msg = kpeek64(msg + 320),
+        .status = ENOSYS,
+        .total_messages = 1,
+    };
+    int idx = HANDLE_TO_IDX(first_msg_data[5]);
+    if(idx < 0)
+        return result;
+
+    uint8_t key[32];
+    if(!get_fake_key(idx, key))
+        return result;
+
+    uint64_t src = first_msg_data[2];
+    uint64_t dst = first_msg_data[3];
+    uint64_t start_sector = first_msg_data[4];
+    uint32_t total_sectors = (uint32_t)first_msg_data[1];
+    int is_encrypt = (first_msg_data[0] & 0x800) >> 11;
+    uint64_t cursor = msg;
+
+    while(result.next_msg)
     {
-        int idx = HANDLE_TO_IDX(msg_data[5]);
-        //log_word(0xfee10006dead0100|(uint16_t)idx|((msg_data[0]&0x800)<<4));
-        if(idx < 0)
-            return ENOSYS;
-        uint8_t key[32];
-        if(!get_fake_key(idx, key))
-            return ENOSYS;
-        //log_word(0xdead0006dead0007);
-        uint64_t n_sectors = (uint32_t)msg_data[1];
-        uint64_t offset = (bytes_cap - *bytes_handled) >> 12;
-        if(offset >= n_sectors)
-        {
-            *bytes_handled += n_sectors << 12;
-            return 0;
-        }
-        *bytes_handled = bytes_cap + 4096;
-        if(pfs_xts_virtual(msg_data[3] + (offset << 12), msg_data[2] + (offset << 12), key, msg_data[4] + offset, 1, (msg_data[0] & 0x800) >> 11))
-        {
-            //log_word(0xfee1fee1fee1fee1);
-            return -1;
-        }
-        else
-            return (offset == n_sectors - 1) ? 0 : EINTR;
+        uint64_t next_msg_data[21];
+        if(read_crypto_message(result.next_msg, next_msg_data))
+            break;
+        if(!is_xts_message(next_msg_data))
+            break;
+        uint32_t next_sectors = (uint32_t)next_msg_data[1];
+        if(HANDLE_TO_IDX(next_msg_data[5]) != idx
+        || ((next_msg_data[0] & 0x800) >> 11) != is_encrypt
+        || next_msg_data[2] != src + ((uint64_t)total_sectors << 12)
+        || next_msg_data[3] != dst + ((uint64_t)total_sectors << 12)
+        || next_msg_data[4] != start_sector + total_sectors
+        || total_sectors > UINT32_MAX - next_sectors)
+            break;
+
+        total_sectors += next_sectors;
+        cursor = result.next_msg;
+        result.next_msg = kpeek64(cursor + 320);
+        result.total_messages++;
     }
-    //log_word(0xdead0006dead0006);
-    //log_word(msg);
-    /*for(int i = 0; i < 32; i++)
-        log_word(msg_data[i]);*/
-    //log_word(0xdead0006ffffffff);
-    return ENOSYS;
+
+    uint64_t run_bytes = (uint64_t)total_sectors << 12;
+    uint64_t skip_bytes = 0;
+    if(bytes_cap > *bytes_handled)
+        skip_bytes = bytes_cap - *bytes_handled;
+    if(skip_bytes >= run_bytes)
+        skip_bytes = run_bytes;
+    uint32_t skip_sectors = (uint32_t)(skip_bytes >> 12);
+    *bytes_handled += run_bytes;
+
+    if(skip_sectors < total_sectors)
+    {
+        if(pfs_xts_virtual(cache, dst + ((uint64_t)skip_sectors << 12),
+                           src + ((uint64_t)skip_sectors << 12), idx, key,
+                           start_sector + skip_sectors, total_sectors - skip_sectors, is_encrypt))
+        {
+            result.emulated_messages = result.total_messages;
+            result.status = -1;
+            return result;
+        }
+    }
+
+    result.emulated_messages = result.total_messages;
+    result.status = 0;
+    return result;
 }
 
 static inline uint64_t rdtsc(void)
@@ -106,12 +187,26 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
     int total = 0;
     int emulated = 0;
     int total_status = 0;
+    int handled = 0;
     uint64_t new_bytes_handled = 0;
 
     uint64_t start = (FWVER >= 0x800) ? regs[RBX] : regs[R14];
-    for (uint64_t msg = start; msg && !total_status; msg = kpeek64(msg + 320))
+    if(uelf_fpu_enter())
+        return 0;
+
+    for (uint64_t msg = start; msg && !total_status;)
     {
-        int status = handle_crypto_message(regs, msg, bytes_handled, &new_bytes_handled);
+        uint64_t msg_data[21];
+        if(read_crypto_message(msg, msg_data))
+        {
+            total_status = -1;
+            break;
+        }
+
+        struct crypto_message_result result = is_xts_message(msg_data)
+            ? handle_xts_message_run(msg, msg_data, bytes_handled, &new_bytes_handled, &s_crypto_request_cache)
+            : handle_non_xts_message(msg, msg_data, bytes_handled, &new_bytes_handled, &s_crypto_request_cache);
+        int status = result.status;
 
         if (status == EINTR) // partial decrypt, need to restart the syscall
         {
@@ -125,17 +220,19 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
                 break;
             }
             regs[RIP] = (uint64_t)doreti_iret;
-            return 1;
+            handled = 1;
+            goto exit;
         }
 
-        total++;
+        total += result.total_messages;
 
         if (status != ENOSYS)
         {
-            emulated++;
+            emulated += result.emulated_messages;
             if (status)
                 total_status = status;
         }
+        msg = result.next_msg;
     }
 
     if (emulated)
@@ -148,15 +245,17 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
         }
 
         if(!crypto_request_emulated(regs, (FWVER >= 0x800) ? regs[RBX] : regs[R14], total_status))
-            return 0;
+            goto exit;
 
         uint64_t end_time = rdtsc();
         /*log_word(0x1234);
         log_word(end_time - start_time);*/
-        return 1;
+        handled = 1;
     }
 
-    return 0;
+exit:
+    uelf_fpu_exit();
+    return handled;
 }
 
 int try_handle_fpkg_trap(uint64_t* regs)
@@ -179,7 +278,7 @@ int try_handle_fpkg_mailbox(uint64_t* regs, uint64_t lr)
     if(lr == (uint64_t)sceSblServiceMailbox_lr_verifySuperBlock)
     {
         uint64_t req[8];
-        if(copy_from_kernel(req, regs[RDX], 64))
+        if(copy_from_kernel(req, regs[RDX], sizeof(req)))
             return 0;
         uint64_t p_eekpfs = 0;
         memcpy(&p_eekpfs, DMEM+req[2]+32, 8);

@@ -5,8 +5,8 @@
 #include "npdrm.h"
 #include "log.h"
 #include "fpu.h"
+#include "sha256.h"
 
-#include "../BearSSL/inc/bearssl.h"
 #include <isa-l_crypto/aes_cbc.h>
 #include <isa-l_crypto/aes_keyexp.h>
 
@@ -20,16 +20,28 @@ extern char sceSblServiceMailbox[];
 
 static const uint8_t rif_debug_key[] = {0x96, 0xC2, 0x26, 0x8D, 0x69, 0x26, 0x1C, 0x8B, 0x1E, 0x3B, 0x6B, 0xFF, 0x2F, 0xE0, 0x4E, 0x12};
 
-int aes_cbc_128_decrypt(uint8_t *out, const uint8_t *in, int size, const uint8_t *key, const uint8_t *iv)
+enum { AES128_EXPKEY_SIZE = 16 * 11 };
+
+static struct
 {
-    enum { AES128_EXPKEY_SIZE = 16 * 11 };
     uint8_t enc_exp_key[AES128_EXPKEY_SIZE] __attribute__((aligned(16)));
     uint8_t dec_exp_key[AES128_EXPKEY_SIZE] __attribute__((aligned(16)));
+    int valid;
+} s_rif_debug_key_schedule;
+
+static int aes_cbc_128_decrypt_rif_debug(uint8_t *out, const uint8_t *in, int size, const uint8_t *iv)
+{
     int err = -1;
-    uelf_fpu_enter();
-    if (isal_aes_keyexp_128(key, enc_exp_key, dec_exp_key))
-        goto exit;
-    if (isal_aes_cbc_dec_128(in, iv, dec_exp_key, out, size))
+    if (uelf_fpu_enter())
+        return -1;
+    if (!s_rif_debug_key_schedule.valid)
+    {
+        if (isal_aes_keyexp_128(rif_debug_key, s_rif_debug_key_schedule.enc_exp_key,
+                                s_rif_debug_key_schedule.dec_exp_key))
+            goto exit;
+        s_rif_debug_key_schedule.valid = 1;
+    }
+    if (isal_aes_cbc_dec_128(in, iv, s_rif_debug_key_schedule.dec_exp_key, out, size))
         goto exit;
     err = 0;
 exit:
@@ -39,13 +51,16 @@ exit:
 
 static int sha256_buffer_fpu_held(const unsigned char *in, unsigned long inlen, unsigned char *out)
 {
-    br_sha256_context ctx;
+    struct uelf_sha256_context ctx;
     int err = -1;
 
-    uelf_fpu_enter();
-    br_sha256_init(&ctx);
-    br_sha256_update(&ctx, in, inlen);
-    br_sha256_out(&ctx, out);
+    if (uelf_fpu_enter())
+        return -1;
+    uelf_sha256_init(&ctx);
+    if(uelf_sha256_update(&ctx, in, inlen))
+        goto exit;
+    if(uelf_sha256_final(&ctx, out))
+        goto exit;
     err = 0;
 exit:
     uelf_fpu_exit();
@@ -111,9 +126,18 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 #endif
     }
 
+    if (uelf_fpu_enter())
+    {
+#ifdef NPDRM_PORTING
+        return 0;
+#else
+        return 1;
+#endif
+    }
     uint8_t contentid_hash[32];
     if (sha256_buffer_fpu_held(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
     {
+        uelf_fpu_exit();
 #ifdef NPDRM_PORTING
         return 0;
 #else
@@ -123,6 +147,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 
     if (memcmp(contentid_hash, layout.rif.rifIv, 16) != 0)
     {
+        uelf_fpu_exit();
 #ifdef NPDRM_PORTING
         return 0;
 #else
@@ -170,13 +195,16 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 #endif
     {
         uint8_t decrypted_secret[sizeof(layout.rif.rifSecret)];
-        if (aes_cbc_128_decrypt(decrypted_secret, layout.rif.rifSecret, sizeof(layout.rif.rifSecret), rif_debug_key, layout.rif.rifIv))
+        if (aes_cbc_128_decrypt_rif_debug(decrypted_secret, layout.rif.rifSecret,
+                                          sizeof(layout.rif.rifSecret), layout.rif.rifIv))
         {
+            uelf_fpu_exit();
             return 1;
         }
 
         if (memcmp(contentid_hash + 16, decrypted_secret, 16) != 0)
         {
+            uelf_fpu_exit();
             // does not use debug rif key/failed to decrypt?
             return 1;
         }
@@ -184,6 +212,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
         // copy both unk10 and unk20
         if(copy_to_kernel(regs[RDX] + __builtin_offsetof(struct NpDrmCmd6, unk10), &decrypted_secret[0x70], 0x20))
         {
+            uelf_fpu_exit();
             return 1;
         }
     }
@@ -193,9 +222,11 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
     uint32_t res = 0;
     if(copy_to_kernel(regs[RDX] + 0x4, &res, sizeof(res)))
     {
+        uelf_fpu_exit();
         return 1;
     }
 
+    uelf_fpu_exit();
     regs[RIP] = lr;
     regs[RAX] = 0;
     regs[RSP] += 8;
