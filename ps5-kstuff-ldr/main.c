@@ -22,6 +22,7 @@ along with this program; see the file COPYING. If not, see
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <stdbool.h>
 
 #include <sys/mman.h>
 #include <sys/_iovec.h>
@@ -30,6 +31,8 @@ along with this program; see the file COPYING. If not, see
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include <sys/mdioctl.h>
+#include <sys/ioctl.h>
 
 #include <machine/param.h>
 #include <ps5/payload.h>
@@ -42,11 +45,13 @@ int sceKernelSetProcessName(const char *name);
 #define ROUND_PG(x) (((x) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
 #define TRUNC_PG(x) ((x) & ~(PAGE_SIZE - 1))
 #define PFLAGS(x)   ((((x) & PF_R) ? PROT_READ  : 0) | \
-		     (((x) & PF_W) ? PROT_WRITE : 0) | \
-		     (((x) & PF_X) ? PROT_EXEC  : 0))
+             (((x) & PF_W) ? PROT_WRITE : 0) | \
+             (((x) & PF_X) ? PROT_EXEC  : 0))
 
 #define IOVEC_ENTRY(x) { (void*)(x), (x) ? strlen(x) + 1 : 0 }
 #define IOVEC_SIZE(x)  (sizeof(x) / sizeof(struct iovec))
+
+#define MD_UNIT_MAX 256
 
 static int remount_system_ex(void) {
     struct iovec iov[] = {
@@ -74,6 +79,115 @@ static int automount_disabled(void) {
     return access("/data/.kstuff_noautomount", F_OK) == 0;
 }
 
+static bool mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, char* dev_path, size_t dev_path_len) {
+    struct stat st;
+    if (stat(file_path, &st) != 0) {
+        klog_printf("stat failed: %s", strerror(errno));
+        return false;
+    }
+
+    int mdctl = open("/dev/mdctl", O_RDWR);
+    if (mdctl < 0) {
+        klog_printf("/dev/mdctl open failed: %s", strerror(errno));
+        return false;
+    }
+
+    struct md_ioctl mdio;
+    char current_file[PATH_MAX];
+    int exist = 0;
+    int ret;
+
+    for (int unit = 0; unit < MD_UNIT_MAX; unit++) {
+        memset(&mdio, 0, sizeof(mdio));
+        mdio.md_version = MDIOVERSION;
+        mdio.md_unit = unit;
+        mdio.md_file = current_file;
+
+        if (ioctl(mdctl, (unsigned long)MDIOCQUERY, &mdio) == 0) {
+            if (mdio.md_type == MD_VNODE && strcmp(current_file, file_path) == 0) {
+                exist = 1;
+                break;
+            }
+        }
+    }
+
+    if (!exist) {
+        memset(&mdio, 0, sizeof(mdio));
+        mdio.md_version    = MDIOVERSION;
+        mdio.md_type       = MD_VNODE;
+        mdio.md_file       = (char*)file_path;
+        mdio.md_mediasize  = st.st_size;
+        mdio.md_sectorsize = 512;
+        mdio.md_options    = MD_AUTOUNIT;
+
+        ret = ioctl(mdctl, (unsigned long)MDIOCATTACH, &mdio);
+        if (ret != 0) {
+            klog_printf("MDIOCATTACH failed: %s (errno %d)", strerror(errno), errno);
+            close(mdctl);
+            return false;
+        }
+    }
+
+    snprintf(dev_path, dev_path_len, "/dev/md%u", mdio.md_unit);
+    close(mdctl);
+
+    klog_printf("Image attached as %s", dev_path);
+
+    struct iovec iov_ufs[] = {
+        IOVEC_ENTRY("fstype"),    IOVEC_ENTRY("ufs"),
+        IOVEC_ENTRY("fspath"),    IOVEC_ENTRY(mount_point),
+        IOVEC_ENTRY("from"),      IOVEC_ENTRY(dev_path),
+        IOVEC_ENTRY("async"),     IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("noatime"),   IOVEC_ENTRY(NULL),
+    };
+    int iov_ufs_count = sizeof(iov_ufs) / sizeof(iov_ufs[0]);
+
+    struct iovec iov_exfat[] = {
+        IOVEC_ENTRY("fstype"),    IOVEC_ENTRY("exfatfs"),
+        IOVEC_ENTRY("fspath"),    IOVEC_ENTRY(mount_point),
+        IOVEC_ENTRY("from"),      IOVEC_ENTRY(dev_path),
+        IOVEC_ENTRY("large"),     IOVEC_ENTRY("yes"),
+        IOVEC_ENTRY("timezone"),  IOVEC_ENTRY("static"),
+        IOVEC_ENTRY("async"),     IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("ignoreacl"), IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("noatime"),   IOVEC_ENTRY(NULL),
+    };
+    int iov_exfat_count = sizeof(iov_exfat) / sizeof(iov_exfat[0]);
+
+    struct iovec* iov = (fs[0] == 'u') ? iov_ufs : iov_exfat;
+    int iov_count = (fs[0] == 'u') ? iov_ufs_count : iov_exfat_count;
+
+    // Prefer RW first for install compatibility
+    ret = nmount(iov, iov_count, 0);
+    if (ret != 0) {
+        klog_printf("nmount rw failed: %s - falling back to rdonly", strerror(errno));
+        ret = nmount(iov, iov_count, MNT_RDONLY);
+        if (ret != 0) {
+            klog_printf("nmount ufs failed: %s", strerror(errno));
+            return false;
+        }
+    }
+
+    klog_printf("Image mounted OK -> %s (rw preferred)", mount_point);
+    return true;
+}
+
+static void unmount_ufs_image(const char* mount_point, const char* dev_path) {
+    unmount(mount_point, MNT_FORCE);
+
+    struct md_ioctl mdio = {0};
+    if (sscanf(dev_path, "/dev/md%u", &mdio.md_unit) > 0) {
+        int mdctl = open("/dev/mdctl", O_RDWR);
+        if (mdctl < 0) {
+            klog_printf("/dev/mdctl open failed: %s", strerror(errno));
+            return;
+        }
+
+        ioctl(mdctl, (unsigned long)MDIOCDETACH, &mdio);
+        close(mdctl);
+    }
+}
+
 static int bind_mount_title(const char* title_id, const char* src) {
     char dst[PATH_MAX];
     struct stat st;
@@ -85,7 +199,10 @@ static int bind_mount_title(const char* title_id, const char* src) {
     }
 
     snprintf(dst, sizeof(dst), "/system_ex/app/%s", title_id);
-    if (unmount(dst, 0) != 0 && errno != EINVAL) {
+    struct statfs sfs;
+    if (statfs(dst, &sfs) == 0 && strcmp(sfs.f_fstypename, "nullfs") != 0) {
+        unmount_ufs_image(dst, sfs.f_mntfromname);
+    } else if (unmount(dst, MNT_FORCE) != 0 && errno != EINVAL) {
         klog_perror("Failed to unmount partially mounted title");
     }
 
@@ -94,8 +211,20 @@ static int bind_mount_title(const char* title_id, const char* src) {
         return -1;
     }
 
-    if (mount_nullfs(src, dst) != 0) {
+    char dev_path[32] = {0};
+    if (src[0] == '/' && mount_nullfs(src, dst) != 0) {
         klog_perror("Failed to bind mount title with mount_nullfs");
+        return -1;
+    } else if (memcmp(src, "ufs:", 4) == 0 && !mount_ufs_image(src + 4, dst, "ufs", dev_path, sizeof(dev_path))) {
+        klog_perror("Failed to bind mount title with mount_ufs_image");
+        unmount_ufs_image(dst, dev_path);
+        return -1;
+    } else if (memcmp(src, "exfatfs:", 8) == 0 && !mount_ufs_image(src + 8, dst, "exfatfs", dev_path, sizeof(dev_path))) {
+        klog_perror("Failed to bind mount title with mount_ufs_image");
+        unmount_ufs_image(dst, dev_path);
+        return -1;
+    } else {
+        klog_perror("Failed to bind mount title with not supported fs");
         return -1;
     }
 
@@ -200,7 +329,7 @@ pt_load(const void* image, void* base, Elf64_Phdr *phdr) {
 }
 
 int main(void) {
-	sceKernelSetProcessName("kstuff.elf");
+    sceKernelSetProcessName("kstuff.elf");
     Elf64_Ehdr *ehdr = (Elf64_Ehdr*)___ps5_kstuff_payload_bin;
     Elf64_Phdr *phdr = (Elf64_Phdr*)(___ps5_kstuff_payload_bin + ehdr->e_phoff);
     void *base = (void*)0x0000000926100000;
