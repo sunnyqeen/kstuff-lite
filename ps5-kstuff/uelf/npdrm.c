@@ -49,7 +49,7 @@ exit:
     return err;
 }
 
-int sha256_buffer(const unsigned char *in, unsigned long inlen, unsigned char *out)
+static int sha256_buffer_fpu_held(const unsigned char *in, unsigned long inlen, unsigned char *out)
 {
     struct uelf_sha256_context ctx;
     int err = -1;
@@ -135,7 +135,7 @@ int try_handle_npdrm_mailbox(uint64_t *regs, uint64_t lr)
 #endif
     }
     uint8_t contentid_hash[32];
-    if (sha256_buffer(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
+    if (sha256_buffer_fpu_held(layout.rif.contentId, sizeof(layout.rif.contentId), contentid_hash))
     {
         uelf_fpu_exit();
 #ifdef NPDRM_PORTING

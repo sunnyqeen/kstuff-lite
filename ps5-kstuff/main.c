@@ -61,12 +61,34 @@ static void kpoke64(void* dst, uint64_t src)
     kmemcpy(dst, &src, 8);
 }
 
+enum { KZERO_CHUNK_SIZE = 1 << 16 };
+
+static void* get_zero_chunk(void)
+{
+    static char* zero_chunk;
+    if(!zero_chunk)
+    {
+        zero_chunk = mmap(0, KZERO_CHUNK_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
+        if(zero_chunk == MAP_FAILED)
+            die();
+        if(mlock(zero_chunk, KZERO_CHUNK_SIZE))
+            die();
+    }
+    return zero_chunk;
+}
+
 static void kmemzero(void* dst, size_t sz)
 {
-    char* umem = mmap(0, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
-    mlock(umem, sz);
-    kmemcpy(dst, umem, sz);
-    munmap(umem, sz);
+    const char* zero_chunk = get_zero_chunk();
+    while(sz)
+    {
+        size_t chunk = sz;
+        if(chunk > KZERO_CHUNK_SIZE)
+            chunk = KZERO_CHUNK_SIZE;
+        kmemcpy(dst, zero_chunk, chunk);
+        dst = (char*)dst + chunk;
+        sz -= chunk;
+    }
 }
 
 static int strcmp(const char* a, const char* b)
@@ -82,9 +104,43 @@ static int strcmp(const char* a, const char* b)
 #define kmalloc my_kmalloc
 
 static uint64_t mem_blocks[8];
+enum { KMALLOC_CHUNK_SIZE = 1 << 22 };
+
+static size_t align_up(size_t value, size_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static void kmalloc_add_block(size_t min_size)
+{
+    size_t block_size = align_up(min_size, 4096);
+    if(block_size < KMALLOC_CHUNK_SIZE)
+        block_size = KMALLOC_CHUNK_SIZE;
+    for(int i = 0; i < 8; i += 2)
+    {
+        if(mem_blocks[i] || mem_blocks[i+1])
+            continue;
+        while(!mem_blocks[i])
+            mem_blocks[i] = r0gdb_kmalloc(block_size);
+        mem_blocks[i+1] = mem_blocks[i] + block_size;
+        return;
+    }
+    die();
+}
 
 static void* kmalloc(size_t sz)
 {
+    sz = align_up(sz, 16);
+    for(int i = 0; i < 8; i += 2)
+    {
+        if(mem_blocks[i] + sz <= mem_blocks[i+1])
+        {
+            uint64_t ans = mem_blocks[i];
+            mem_blocks[i] += sz;
+            return (void*)ans;
+        }
+    }
+    kmalloc_add_block(sz);
     for(int i = 0; i < 8; i += 2)
     {
         if(mem_blocks[i] + sz <= mem_blocks[i+1])
@@ -265,6 +321,28 @@ uint64_t virt2phys(uintptr_t addr, uint64_t* phys_limit, uint64_t dmap, uint64_t
     //unreachable
 }
 
+static uint64_t virt2phys_or_die(uintptr_t addr, uint64_t* phys_limit, uint64_t dmap, uint64_t pml)
+{
+    uint64_t phys = virt2phys(addr, phys_limit, dmap, pml);
+    if(phys == (uint64_t)-1)
+        die();
+    return phys;
+}
+
+static void build_uelf_pml1(uint64_t pml1_virt, uint64_t user_start, uint64_t user_end, uint64_t dmap, uint64_t cr3)
+{
+    uint64_t phys = 0;
+    uint64_t phys_end = 0;
+    uint64_t vaddr = user_start;
+    for(uint64_t i = 0; vaddr < user_end; i++, vaddr += 4096)
+    {
+        if(vaddr >= phys_end)
+            phys = virt2phys_or_die(vaddr, &phys_end, dmap, cr3);
+        copyin(pml1_virt+8*i, &(uint64_t[1]){phys | 7}, 8);
+        phys += 4096;
+    }
+}
+
 uint64_t kernel_get_proc(uint64_t pid)
 {
     uint64_t proc = kread8(offsets.allproc);
@@ -320,11 +398,9 @@ uint64_t find_empty_pml4_index(int idx)
             return i;
 }
 
-void build_uelf_cr3(uint64_t uelf_cr3, void* uelf_base[2], uint64_t uelf_virt_base, uint64_t dmap_virt_base)
+void build_uelf_cr3(uint64_t uelf_cr3, void* uelf_base[2], uint64_t uelf_virt_base, uint64_t dmap_virt_base, uint64_t dmap, uint64_t cr3)
 {
     static char zeros[4096];
-    uint64_t dmap = get_dmap_base();
-    uint64_t cr3 = r0gdb_read_cr3();
     uint64_t user_start = (uint64_t)uelf_base[0];
     uint64_t user_end = (uint64_t)uelf_base[1];
     if((uelf_virt_base & 0x1fffff) || (dmap_virt_base & ((1ull << 39) - 1)) || user_end - user_start > 0x200000)
@@ -334,17 +410,16 @@ void build_uelf_cr3(uint64_t uelf_cr3, void* uelf_base[2], uint64_t uelf_virt_ba
     kmemcpy((void*)(pml4_virt+2048), (void*)(dmap+cr3+2048), 2048);
     uint64_t pml3_virt = uelf_cr3 + 4096;
     uint64_t pml3_dmap = uelf_cr3 + 16384; //user-accessible direct mapping of physical memory
-    copyin(pml4_virt + 8 * ((uelf_virt_base >> 39) & 511), &(uint64_t[1]){virt2phys(pml3_virt,0,0,0) | 7}, 8);
-    copyin(pml4_virt + 8 * ((dmap_virt_base >> 39) & 511), &(uint64_t[1]){virt2phys(pml3_dmap,0,0,0) | 7}, 8);
+    copyin(pml4_virt + 8 * ((uelf_virt_base >> 39) & 511), &(uint64_t[1]){virt2phys_or_die(pml3_virt, 0, dmap, cr3) | 7}, 8);
+    copyin(pml4_virt + 8 * ((dmap_virt_base >> 39) & 511), &(uint64_t[1]){virt2phys_or_die(pml3_dmap, 0, dmap, cr3) | 7}, 8);
     copyin(pml3_virt, zeros, 4096);
     uint64_t pml2_virt = uelf_cr3 + 8192;
-    copyin(pml3_virt + 8 * ((uelf_virt_base >> 30) & 511), &(uint64_t[1]){virt2phys(pml2_virt,0,0,0) | 7}, 8);
+    copyin(pml3_virt + 8 * ((uelf_virt_base >> 30) & 511), &(uint64_t[1]){virt2phys_or_die(pml2_virt, 0, dmap, cr3) | 7}, 8);
     copyin(pml2_virt, zeros, 4096);
     uint64_t pml1_virt = uelf_cr3 + 12288;
-    copyin(pml2_virt + 8 * ((uelf_virt_base >> 21) & 511), &(uint64_t[1]){virt2phys(pml1_virt,0,0,0) | 7}, 8);
+    copyin(pml2_virt + 8 * ((uelf_virt_base >> 21) & 511), &(uint64_t[1]){virt2phys_or_die(pml1_virt, 0, dmap, cr3) | 7}, 8);
     copyin(pml1_virt, zeros, 4096);
-    for(uint64_t i = 0; i * 4096 + user_start < user_end; i++)
-        copyin(pml1_virt+8*i, &(uint64_t[1]){virt2phys(i*4096+user_start,0,0,0) | 7}, 8);
+    build_uelf_pml1(pml1_virt, user_start, user_end, dmap, cr3);
     for(uint64_t i = 0; i < 512; i++)
         copyin(pml3_dmap+8*i, &(uint64_t[1]){(i<<30) | 135}, 8);
 }
@@ -710,12 +785,7 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     gdb_remote_syscall("write", 3, 0, (uintptr_t)1, (uintptr_t)"allocating kernel memory... ", (uintptr_t)28);
     for(int i = 0; i < 0x300; i += 2)
         r0gdb_kmalloc(0x100);
-    for(int i = 0; i < 2; i += 2)
-    {
-        while(!mem_blocks[i])
-            mem_blocks[i] = r0gdb_kmalloc(1<<23);
-        mem_blocks[i+1] = (mem_blocks[i] ? mem_blocks[i] + (1<<23) : 0);
-    }
+    kmalloc_add_block(KMALLOC_CHUNK_SIZE);
     gdb_remote_syscall("write", 3, 0, (uintptr_t)1, (uintptr_t)"done\n", (uintptr_t)5);
     uint64_t comparison_table_base = (uint64_t)kmalloc(131072);
     uint64_t comparison_table = ((comparison_table_base - 1) | 65535) + 1;
@@ -732,9 +802,11 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     else
         shared_area = comparison_table + 65536;
     kmemzero((void*)shared_area, 4096);
+    uint64_t kernel_dmap = get_dmap_base();
+    uint64_t kernel_cr3 = r0gdb_read_cr3();
     uint64_t uelf_virt_base = (find_empty_pml4_index(0) << 39) | (-1ull << 48);
     uint64_t dmem_virt_base = (find_empty_pml4_index(1) << 39) | (-1ull << 48);
-    shared_area = virt2phys(shared_area,0,0,0) + dmem_virt_base;
+    shared_area = virt2phys_or_die(shared_area, 0, kernel_dmap, kernel_cr3) + dmem_virt_base;
 
     volatile int zero = 0; //hack to force runtime calculation of string pointers
     const char* symbols[] = {
@@ -821,12 +893,12 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
         uintptr_t uelf_cr3 = (uintptr_t)kmalloc(24576);
         uelf_cr3 = ((uelf_cr3 + 4095) | 4095) - 4095;
         uelf_cr3s[cpu] = uelf_cr3;
-        values[uelf_cr3_idx] = virt2phys(uelf_cr3,0,0,0);
+        values[uelf_cr3_idx] = virt2phys_or_die(uelf_cr3, 0, kernel_dmap, kernel_cr3);
         values[uelf_entry_idx] = (uintptr_t)uelf_entry - (uintptr_t)uelf_base[0] + uelf_virt_base;
         void* entry = 0;
         void* base[2] = {0};
         char* kelf = load_kelf(kek, symbols, values, base, &entry, 0);
-        build_uelf_cr3(uelf_cr3, uelf_base, uelf_virt_base, dmem_virt_base);
+        build_uelf_cr3(uelf_cr3, uelf_base, uelf_virt_base, dmem_virt_base, kernel_dmap, kernel_cr3);
         uelf_bases[cpu] = (uintptr_t)uelf;
         kelf_bases[cpu] = (uint64_t)kelf;
         kelf_entries[cpu] = (uint64_t)entry;
