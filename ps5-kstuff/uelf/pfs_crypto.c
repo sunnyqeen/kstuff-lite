@@ -33,7 +33,8 @@ static void pfs_gen_key(uint32_t idx, const uint8_t* seed, const uint8_t* ekpfs,
 
 int pfs_derive_fake_keys(const uint8_t* p_eekpfs, const uint8_t* crypt_seed, uint8_t* ek, uint8_t* sk)
 {
-    uelf_fpu_enter();
+    if(uelf_fpu_enter())
+        return 0;
     int ans = 0;
     uint8_t eekpfs[256];
     memcpy(eekpfs, p_eekpfs, 256);
@@ -57,7 +58,8 @@ exit:
 
 int pfs_hmac_virtual(uint8_t* out, const uint8_t* key, uint64_t data, size_t data_size)
 {
-    uelf_fpu_enter();
+    if(uelf_fpu_enter())
+        return -1;
     br_hmac_key_context key_ctx;
     br_hmac_key_init(&key_ctx, &br_sha256_vtable, key, 32);
     br_hmac_context ctx;
