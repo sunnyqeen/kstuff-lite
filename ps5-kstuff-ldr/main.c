@@ -79,7 +79,74 @@ static int automount_disabled(void) {
     return access("/data/.kstuff_noautomount", F_OK) == 0;
 }
 
-static bool mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, char* dev_path, size_t dev_path_len) {
+// IMAGE TYPE DETECTION
+#define UFS2_MAGIC          0x19540119
+#define SBLOCK_UFS2_OFFSET  65536      // 64 KB
+// Offsets within the superblock
+#define OFFSET_UFS_FSIZE        52         // fs_fsize (int32_t)
+#define OFFSET_UFS_FSBTODB      100        // fs_fsbtodb (int32_t)
+#define OFFSET_UFS_MAGIC        1372       // fs_magic (int32_t)
+
+static int32_t detect_is_ufs(const char* file_path) {
+    FILE* fp = fopen(file_path, "rb");
+    if (!fp) return 0;
+    int32_t fsize = 0, fsbtodb = 0, magic = 0;
+
+    // Verify Magic Number
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_MAGIC, SEEK_SET) == 0)
+        fread(&magic, 4, 1, fp);
+    if (magic != UFS2_MAGIC) {
+        printf("Not a valid UFS image (Magic mismatch).\n");
+        fclose(fp);
+        return 0;
+    }
+
+    // Read fragment size and shift count
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_FSIZE, SEEK_SET) == 0)
+        fread(&fsize, 4, 1, fp);
+
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_FSBTODB, SEEK_SET) == 0)
+        fread(&fsbtodb, 4, 1, fp);
+
+    // Calculate Sector Size
+    // sector_size = fsize / (2^fsbtodb)
+    int32_t sector_size = fsize < 512 ? 0 : (fsize >> fsbtodb);
+
+    fclose(fp);
+    return sector_size;
+}
+
+#define OFFSET_EXFAT_MAGIC 3
+#define OFFSET_EXFAT_SHIFT 108
+static int32_t detect_is_exfat(const char *file_path) {
+    FILE *fp = fopen(file_path, "rb");
+    if (!fp) return 0;
+
+    char magic[9] = {0};
+    uint8_t shift = 0;
+
+    // Verify Magic Number ("EXFAT   " at offset 3)
+    if (fseek(fp, OFFSET_EXFAT_MAGIC, SEEK_SET) == 0)
+        fread(magic, 1, 8, fp);
+    if (strncmp(magic, "EXFAT   ", 8) != 0) {
+        printf("Not a valid EXFAT image (Magic mismatch).\n");
+        fclose(fp);
+        return 0;
+    }
+
+    // Read BytesPerSectorShift at offset 108
+    if (fseek(fp, OFFSET_EXFAT_SHIFT, SEEK_SET) == 0)
+        fread(&shift, 1, 1, fp);
+
+    // Calculation: 2^shift
+    // Valid values for exFAT are 9 (512 bytes) through 12 (4096 bytes)
+    int32_t sector_size = shift < 9 ? 0 : (1 << shift);
+
+    fclose(fp);
+    return sector_size;
+}
+
+static bool mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, int sector_size, char* dev_path, size_t dev_path_len) {
     struct stat st;
     if (stat(file_path, &st) != 0) {
         klog_printf("stat failed: %s", strerror(errno));
@@ -117,7 +184,7 @@ static bool mount_ufs_image(const char* file_path, const char* mount_point, cons
         mdio.md_type       = MD_VNODE;
         mdio.md_file       = (char*)file_path;
         mdio.md_mediasize  = st.st_size;
-        mdio.md_sectorsize = 512;
+        mdio.md_sectorsize = sector_size;
         mdio.md_options    = MD_AUTOUNIT;
 
         ret = ioctl(mdctl, (unsigned long)MDIOCATTACH, &mdio);
@@ -212,14 +279,17 @@ static int bind_mount_title(const char* title_id, const char* src) {
     }
 
     char dev_path[32] = {0};
+	int sector_size = 0;
     if (src[0] == '/' && mount_nullfs(src, dst) != 0) {
         klog_perror("Failed to bind mount title with mount_nullfs");
         return -1;
-    } else if (memcmp(src, "ufs:", 4) == 0 && !mount_ufs_image(src + 4, dst, "ufs", dev_path, sizeof(dev_path))) {
+    } else if (memcmp(src, "ufs:", 4) == 0 && (sector_size = detect_is_ufs(src + 4)) > 0 &&
+              !mount_ufs_image(src + 4, dst, "ufs", sector_size, dev_path, sizeof(dev_path))) {
         klog_perror("Failed to bind mount title with mount_ufs_image");
         unmount_ufs_image(dst, dev_path);
         return -1;
-    } else if (memcmp(src, "exfatfs:", 8) == 0 && !mount_ufs_image(src + 8, dst, "exfatfs", dev_path, sizeof(dev_path))) {
+    } else if (memcmp(src, "exfatfs:", 8) == 0 && (sector_size = detect_is_exfat(src + 8)) > 0 &&
+              !mount_ufs_image(src + 8, dst, "exfatfs", sector_size, dev_path, sizeof(dev_path))) {
         klog_perror("Failed to bind mount title with mount_ufs_image");
         unmount_ufs_image(dst, dev_path);
         return -1;
