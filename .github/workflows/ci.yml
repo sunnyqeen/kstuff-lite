@@ -1,4 +1,4 @@
-name: Rebuild With New SDK
+name: CI
 
 on:
   push:
@@ -23,44 +23,15 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Checkout pacbrew-repo
-      uses: actions/checkout@v4
-      with:
-        repository: EchoStretch/pacbrew-repo
-        path: pacbrew-repo
-
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y \
-          autoconf \
-          automake \
-          build-essential \
-          clang-18 \
-          curl \
-          git \
-          libarchive-tools \
-          libtool \
-          lld-18 \
-          makepkg \
-          meson \
-          nasm \
-          pacman-package-manager \
-          pkg-config \
-          xxd \
-          yasm
+        sudo apt install build-essential clang-15 lld-15 xxd yasm nasm
 
-    - name: Build PS5 payload SDK
-      working-directory: pacbrew-repo/sdk
+    - name: Install toolchain
       run: |
-        makepkg -c -f
-        sudo pacman --noconfirm -U ./ps5-payload-*.pkg.tar.gz
-
-    - name: Build PS5 sqlite package
-      working-directory: pacbrew-repo/sqlite
-      run: |
-        makepkg -c -f
-        sudo pacman --noconfirm -U ./ps5-payload-*.pkg.tar.gz
+        wget https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
+        sudo tar xf ps5-payload-dev.tar.gz -C /
 
     - name: Build Payload
       run: |
