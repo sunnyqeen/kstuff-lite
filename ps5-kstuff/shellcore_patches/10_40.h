@@ -2,6 +2,20 @@
 #define SHELLCORE_PATCHES_10_40
 
 static struct shellcore_patch shellcore_patches_1040_retail[] = {
+    {0xC07DB3, "\x52\xeb\xe2", 3}, // push rdx; jmp 0xC07D98
+    {0xC07D98, "\xe8\x33\xf8\xff\xff\x58\xc3", 7}, // call 0xC075D0; pop rax; ret
+    {0xC075B6, "\xe9\x06\x00\x00\x00", 5}, // jmp 0xC075C1
+    {0xC075C1, "\x31\xc0\x50\xe8\x07\x00\x00\x00\x58\xc3", 10}, // xor eax, eax; push rax; call 0xC075D0; pop rax; ret
+    {0x702574, "\xeb\x04", 2},
+    {0x30D1FF, "\xeb\x04", 2},
+    {0x30D5CF, "\xeb\x04", 2},
+    {0x7222B5, "\xeb", 1},
+    {0x70AEE5, "\x90\xe9", 2},
+    {0x7229F3, "\xeb", 1},
+    {0x72498F, "\x61\x01\x00\x00", 4}, // 0x724AF4
+    {0x206C71, "\xe8\x5a\x71\x60\x00\x31\xc9\xff\xc1\xe9\xd4\x01\x00\x00", 14}, // call 0x80DDD0; xor ecx; inc ecx; jmp 0x206E53
+    {0x206E53, "\x83\xf8\x02\x0f\x43\xc1\xe9\x82\xf4\xff\xff", 11}, // cmp eax, 2; cmovae eax, ecx; jmp 0x2062E0
+    {0x2067E3, "\xe9\x89\x04\x00\x00", 5}, // jmp 0x206C71
 
     {0x745FF0, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
 
