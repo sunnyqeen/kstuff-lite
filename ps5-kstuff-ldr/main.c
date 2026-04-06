@@ -279,20 +279,24 @@ static int bind_mount_title(const char* title_id, const char* src) {
     }
 
     char dev_path[32] = {0};
-	int sector_size = 0;
-    if (src[0] == '/' && mount_nullfs(src, dst) != 0) {
-        klog_perror("Failed to bind mount title with mount_nullfs");
-        return -1;
-    } else if (memcmp(src, "ufs:", 4) == 0 && (sector_size = detect_is_ufs(src + 4)) > 0 &&
-              !mount_ufs_image(src + 4, dst, "ufs", sector_size, dev_path, sizeof(dev_path))) {
-        klog_perror("Failed to bind mount title with mount_ufs_image");
-        unmount_ufs_image(dst, dev_path);
-        return -1;
-    } else if (memcmp(src, "exfatfs:", 8) == 0 && (sector_size = detect_is_exfat(src + 8)) > 0 &&
-              !mount_ufs_image(src + 8, dst, "exfatfs", sector_size, dev_path, sizeof(dev_path))) {
-        klog_perror("Failed to bind mount title with mount_ufs_image");
-        unmount_ufs_image(dst, dev_path);
-        return -1;
+    int sector_size = 0;
+    if (src[0] == '/') {
+        if (mount_nullfs(src, dst) != 0) {
+            klog_perror("Failed to bind mount title with mount_nullfs");
+            return -1;
+        }
+    } else if (memcmp(src, "ufs:", 4) == 0 && (sector_size = detect_is_ufs(src + 4)) > 0) {
+        if (!mount_ufs_image(src + 4, dst, "ufs", sector_size, dev_path, sizeof(dev_path))) {
+            klog_perror("Failed to bind mount title with mount_ufs_image");
+            unmount_ufs_image(dst, dev_path);
+            return -1;
+        }
+    } else if (memcmp(src, "exfatfs:", 8) == 0 && (sector_size = detect_is_exfat(src + 8)) > 0) {
+        if (!mount_ufs_image(src + 8, dst, "exfatfs", sector_size, dev_path, sizeof(dev_path))) {
+            klog_perror("Failed to bind mount title with mount_ufs_image");
+            unmount_ufs_image(dst, dev_path);
+            return -1;
+        }
     } else {
         klog_perror("Failed to bind mount title with not supported fs");
         return -1;
