@@ -22,7 +22,6 @@ along with this program; see the file COPYING. If not, see
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
-#include <stdbool.h>
 
 #include <sys/mman.h>
 #include <sys/_iovec.h>
@@ -160,17 +159,17 @@ static int32_t detect_is_exfat(const char *file_path) {
     return sector_size;
 }
 
-static bool mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, int sector_size, char* dev_path, size_t dev_path_len) {
+static int mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, int sector_size, char* dev_path, size_t dev_path_len) {
     struct stat st;
     if (stat(file_path, &st) != 0) {
         klog_printf("stat failed: %s", strerror(errno));
-        return false;
+        return 0;
     }
 
     int mdctl = open("/dev/mdctl", O_RDWR);
     if (mdctl < 0) {
         klog_printf("/dev/mdctl open failed: %s", strerror(errno));
-        return false;
+        return 0;
     }
 
     struct md_ioctl mdio;
@@ -205,7 +204,7 @@ static bool mount_ufs_image(const char* file_path, const char* mount_point, cons
         if (ret != 0) {
             klog_printf("MDIOCATTACH failed: %s (errno %d)", strerror(errno), errno);
             close(mdctl);
-            return false;
+            return 0;
         }
     }
 
@@ -237,6 +236,7 @@ static bool mount_ufs_image(const char* file_path, const char* mount_point, cons
 
     struct iovec* iov = (fs[0] == 'u') ? iov_ufs : iov_exfat;
     int iov_count = (fs[0] == 'u') ? iov_ufs_count : iov_exfat_count;
+    int ro = 0;
 
     // Prefer RW first for install compatibility
     ret = nmount(iov, iov_count, 0);
@@ -245,12 +245,13 @@ static bool mount_ufs_image(const char* file_path, const char* mount_point, cons
         ret = nmount(iov, iov_count, MNT_RDONLY);
         if (ret != 0) {
             klog_printf("nmount ufs failed: %s", strerror(errno));
-            return false;
+            return 0;
         }
+        ro = 1;
     }
 
-    klog_printf("Image mounted OK -> %s (rw preferred)", mount_point);
-    return true;
+    klog_printf("Image mounted OK -> %s (%s)", mount_point, ro ? "ro" : "rw");
+    return 1;
 }
 
 static void unmount_ufs_image(const char* mount_point, const char* dev_path) {
