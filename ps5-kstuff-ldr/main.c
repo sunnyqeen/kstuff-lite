@@ -58,8 +58,8 @@ int sceKernelSetProcessName(const char *name);
 #define ROUND_PG(x) (((x) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
 #define TRUNC_PG(x) ((x) & ~(PAGE_SIZE - 1))
 #define PFLAGS(x)   ((((x) & PF_R) ? PROT_READ  : 0) | \
-		     (((x) & PF_W) ? PROT_WRITE : 0) | \
-		     (((x) & PF_X) ? PROT_EXEC  : 0))
+             (((x) & PF_W) ? PROT_WRITE : 0) | \
+             (((x) & PF_X) ? PROT_EXEC  : 0))
 
 #define IOVEC_ENTRY(x) { (void*)(x), (x) ? strlen(x) + 1 : 0 }
 #define IOVEC_SIZE(x)  (sizeof(x) / sizeof(struct iovec))
@@ -480,7 +480,7 @@ pt_load(const void* image, void* base, Elf64_Phdr *phdr) {
 }
 
 int main(void) {
-	sceKernelSetProcessName("kstuff.elf");
+    sceKernelSetProcessName("kstuff.elf");
     Elf64_Ehdr *ehdr = (Elf64_Ehdr*)___ps5_kstuff_payload_bin;
     Elf64_Phdr *phdr = (Elf64_Phdr*)(___ps5_kstuff_payload_bin + ehdr->e_phoff);
     void *base = (void*)0x0000000926100000;
