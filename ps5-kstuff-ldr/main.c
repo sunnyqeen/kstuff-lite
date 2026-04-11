@@ -30,6 +30,8 @@ along with this program; see the file COPYING. If not, see
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include <sys/mdioctl.h>
+#include <sys/ioctl.h>
 
 #include <machine/param.h>
 #include <ps5/payload.h>
@@ -47,6 +49,8 @@ int sceKernelSetProcessName(const char *name);
 
 #define IOVEC_ENTRY(x) { (void*)(x), (x) ? strlen(x) + 1 : 0 }
 #define IOVEC_SIZE(x)  (sizeof(x) / sizeof(struct iovec))
+
+#define MD_UNIT_MAX 256
 
 static int remount_system_ex(void) {
     struct iovec iov[] = {
@@ -70,6 +74,185 @@ static int mount_nullfs(const char* src, const char* dst) {
     return nmount(iov, IOVEC_SIZE(iov), 0);
 }
 
+// IMAGE TYPE DETECTION
+#define UFS2_MAGIC          0x19540119
+#define SBLOCK_UFS2_OFFSET  65536      // 64 KB
+// Offsets within the superblock
+#define OFFSET_UFS_FSIZE        52         // fs_fsize (int32_t)
+#define OFFSET_UFS_FSBTODB      100        // fs_fsbtodb (int32_t)
+#define OFFSET_UFS_MAGIC        1372       // fs_magic (int32_t)
+
+static int32_t detect_is_ufs(const char* file_path) {
+    FILE* fp = fopen(file_path, "rb");
+    if (!fp) return 0;
+    int32_t fsize = 0, fsbtodb = 0, magic = 0;
+
+    // Verify Magic Number
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_MAGIC, SEEK_SET) == 0)
+        fread(&magic, 4, 1, fp);
+    if (magic != UFS2_MAGIC) {
+        printf("Not a valid UFS image (Magic mismatch).\n");
+        fclose(fp);
+        return 0;
+    }
+
+    // Read fragment size and shift count
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_FSIZE, SEEK_SET) == 0)
+        fread(&fsize, 4, 1, fp);
+
+    if (fseek(fp, SBLOCK_UFS2_OFFSET + OFFSET_UFS_FSBTODB, SEEK_SET) == 0)
+        fread(&fsbtodb, 4, 1, fp);
+
+    // Calculate Sector Size
+    // sector_size = fsize / (2^fsbtodb)
+    int32_t sector_size = fsize < 512 ? 0 : (fsize >> fsbtodb);
+
+    fclose(fp);
+    return sector_size;
+}
+
+#define OFFSET_EXFAT_MAGIC 3
+#define OFFSET_EXFAT_SHIFT 108
+static int32_t detect_is_exfat(const char *file_path) {
+    FILE *fp = fopen(file_path, "rb");
+    if (!fp) return 0;
+
+    char magic[9] = {0};
+    uint8_t shift = 0;
+
+    // Verify Magic Number ("EXFAT   " at offset 3)
+    if (fseek(fp, OFFSET_EXFAT_MAGIC, SEEK_SET) == 0)
+        fread(magic, 1, 8, fp);
+    if (strncmp(magic, "EXFAT   ", 8) != 0) {
+        printf("Not a valid EXFAT image (Magic mismatch).\n");
+        fclose(fp);
+        return 0;
+    }
+
+    // Read BytesPerSectorShift at offset 108
+    if (fseek(fp, OFFSET_EXFAT_SHIFT, SEEK_SET) == 0)
+        fread(&shift, 1, 1, fp);
+
+    // Calculation: 2^shift
+    // Valid values for exFAT are 9 (512 bytes) through 12 (4096 bytes)
+    int32_t sector_size = shift < 9 ? 0 : (1 << shift);
+
+    fclose(fp);
+    return sector_size;
+}
+
+static int mount_ufs_image(const char* file_path, const char* mount_point, const char* fs, int sector_size, char* dev_path, size_t dev_path_len) {
+    struct stat st;
+    if (stat(file_path, &st) != 0) {
+        klog_printf("stat failed: %s", strerror(errno));
+        return 0;
+    }
+
+    int mdctl = open("/dev/mdctl", O_RDWR);
+    if (mdctl < 0) {
+        klog_printf("/dev/mdctl open failed: %s", strerror(errno));
+        return 0;
+    }
+
+    struct md_ioctl mdio;
+    char current_file[PATH_MAX];
+    int exist = 0;
+    int ret;
+
+    for (int unit = 0; unit < MD_UNIT_MAX; unit++) {
+        memset(&mdio, 0, sizeof(mdio));
+        mdio.md_version = MDIOVERSION;
+        mdio.md_unit = unit;
+        mdio.md_file = current_file;
+
+        if (ioctl(mdctl, (unsigned long)MDIOCQUERY, &mdio) == 0) {
+            if (mdio.md_type == MD_VNODE && strcmp(current_file, file_path) == 0) {
+                exist = 1;
+                break;
+            }
+        }
+    }
+
+    if (!exist) {
+        memset(&mdio, 0, sizeof(mdio));
+        mdio.md_version    = MDIOVERSION;
+        mdio.md_type       = MD_VNODE;
+        mdio.md_file       = (char*)file_path;
+        mdio.md_mediasize  = st.st_size;
+        mdio.md_sectorsize = sector_size;
+        mdio.md_options    = MD_AUTOUNIT;
+
+        ret = ioctl(mdctl, (unsigned long)MDIOCATTACH, &mdio);
+        if (ret != 0) {
+            klog_printf("MDIOCATTACH failed: %s (errno %d)", strerror(errno), errno);
+            close(mdctl);
+            return 0;
+        }
+    }
+
+    snprintf(dev_path, dev_path_len, "/dev/md%u", mdio.md_unit);
+    close(mdctl);
+
+    klog_printf("Image attached as %s", dev_path);
+
+    struct iovec iov_ufs[] = {
+        IOVEC_ENTRY("fstype"),    IOVEC_ENTRY("ufs"),
+        IOVEC_ENTRY("fspath"),    IOVEC_ENTRY(mount_point),
+        IOVEC_ENTRY("from"),      IOVEC_ENTRY(dev_path),
+        IOVEC_ENTRY("async"),     IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("noatime"),   IOVEC_ENTRY(NULL),
+    };
+    int iov_ufs_count = sizeof(iov_ufs) / sizeof(iov_ufs[0]);
+
+    struct iovec iov_exfat[] = {
+        IOVEC_ENTRY("fstype"),    IOVEC_ENTRY("exfatfs"),
+        IOVEC_ENTRY("fspath"),    IOVEC_ENTRY(mount_point),
+        IOVEC_ENTRY("from"),      IOVEC_ENTRY(dev_path),
+        IOVEC_ENTRY("large"),     IOVEC_ENTRY("yes"),
+        IOVEC_ENTRY("timezone"),  IOVEC_ENTRY("static"),
+        IOVEC_ENTRY("async"),     IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("ignoreacl"), IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("noatime"),   IOVEC_ENTRY(NULL),
+    };
+    int iov_exfat_count = sizeof(iov_exfat) / sizeof(iov_exfat[0]);
+
+    struct iovec* iov = (fs[0] == 'u') ? iov_ufs : iov_exfat;
+    int iov_count = (fs[0] == 'u') ? iov_ufs_count : iov_exfat_count;
+    int ro = 0;
+
+    // Prefer RW first for install compatibility
+    ret = nmount(iov, iov_count, 0);
+    if (ret != 0) {
+        klog_printf("nmount rw failed: %s - falling back to rdonly", strerror(errno));
+        ret = nmount(iov, iov_count, MNT_RDONLY);
+        if (ret != 0) {
+            klog_printf("nmount ufs failed: %s", strerror(errno));
+            return 0;
+        }
+        ro = 1;
+    }
+
+    klog_printf("Image mounted OK -> %s (%s)", mount_point, ro ? "ro" : "rw");
+    return 1;
+}
+
+static void unmount_ufs_image(const char* mount_point, const char* dev_path) {
+    unmount(mount_point, MNT_FORCE);
+
+    struct md_ioctl mdio = {0};
+    mdio.md_version = MDIOVERSION;
+    if (sscanf(dev_path, "/dev/md%u", &mdio.md_unit) > 0) {
+        int mdctl = open("/dev/mdctl", O_RDWR);
+        if (mdctl < 0) {
+            klog_printf("/dev/mdctl open failed: %s", strerror(errno));
+            return;
+        }
+
+        ioctl(mdctl, (unsigned long)MDIOCDETACH, &mdio);
+        close(mdctl);
+    }
+}
+
 static int bind_mount_title(const char* title_id, const char* src) {
     char dst[PATH_MAX];
     struct stat st;
@@ -81,7 +264,10 @@ static int bind_mount_title(const char* title_id, const char* src) {
     }
 
     snprintf(dst, sizeof(dst), "/system_ex/app/%s", title_id);
-    if (unmount(dst, 0) != 0 && errno != EINVAL) {
+    struct statfs sfs;
+    if (statfs(dst, &sfs) == 0 && strcmp(sfs.f_fstypename, "nullfs") != 0) {
+        unmount_ufs_image(dst, sfs.f_mntfromname);
+    } else if (unmount(dst, MNT_FORCE) != 0 && errno != EINVAL) {
         klog_perror("Failed to unmount partially mounted title");
     }
 
@@ -90,8 +276,27 @@ static int bind_mount_title(const char* title_id, const char* src) {
         return -1;
     }
 
-    if (mount_nullfs(src, dst) != 0) {
-        klog_perror("Failed to bind mount title with mount_nullfs");
+    char dev_path[32] = {0};
+    int sector_size = 0;
+    if (src[0] == '/') {
+        if (mount_nullfs(src, dst) != 0) {
+            klog_perror("Failed to bind mount title with mount_nullfs");
+            return -1;
+        }
+    } else if (memcmp(src, "ufs:", 4) == 0 && (sector_size = detect_is_ufs(src + 4)) > 0) {
+        if (!mount_ufs_image(src + 4, dst, "ufs", sector_size, dev_path, sizeof(dev_path))) {
+            klog_perror("Failed to bind mount title with mount_ufs_image");
+            unmount_ufs_image(dst, dev_path);
+            return -1;
+        }
+    } else if (memcmp(src, "exfatfs:", 8) == 0 && (sector_size = detect_is_exfat(src + 8)) > 0) {
+        if (!mount_ufs_image(src + 8, dst, "exfatfs", sector_size, dev_path, sizeof(dev_path))) {
+            klog_perror("Failed to bind mount title with mount_ufs_image");
+            unmount_ufs_image(dst, dev_path);
+            return -1;
+        }
+    } else {
+        klog_perror("Failed to bind mount title with not supported fs");
         return -1;
     }
 
