@@ -38,6 +38,20 @@ along with this program; see the file COPYING. If not, see
 #include <ps5/klog.h>
 #include "payload_bin.c"
 
+enum {
+  SYSTEM_STATE_MGR_STATE_INVALID = 0u,
+  SYSTEM_STATE_MGR_STATE_INITIALIZING = 10u,
+  SYSTEM_STATE_MGR_STATE_SHUTDOWN_ON_GOING = 100u,
+  SYSTEM_STATE_MGR_STATE_POWER_SAVING = 200u,
+  SYSTEM_STATE_MGR_STATE_SUSPEND_ON_GOING = 300u,
+  SYSTEM_STATE_MGR_STATE_MAIN_ON_STANDBY = 500u,
+  SYSTEM_STATE_MGR_STATE_WORKING = 1000u,
+};
+int sceKernelOpenEventFlag(void** handle, const char *name);
+int sceKernelPollEventFlag(void* handle, uint64_t bit_pattern,
+                           unsigned int wait_mode, uint64_t *result_pattern);
+int sceKernelCloseEventFlag(void* handle);
+
 int patch_app_db(void);
 int sceKernelSetProcessName(const char *name);
 
@@ -362,9 +376,42 @@ static int bind_mount_all_titles(const char* path) {
     return 0;
 }
 
+
+static int umount_all_ufs_titles(const char* path) {
+    struct dirent *entry;
+    DIR *dir = opendir(path);
+
+    if (!dir) {
+        klog_perror("Failed to open directory while binding mounts");
+        return -1;
+    }
+
+    while ((entry = readdir(dir))) {
+        if (strlen(entry->d_name) != 9) {
+            continue;
+        }
+
+        char dst[PATH_MAX];
+        snprintf(dst, sizeof(dst), "%s/%s", path, entry->d_name);
+        struct statfs sfs;
+        if (statfs(dst, &sfs) == 0 && strcmp(sfs.f_fstypename, "nullfs") != 0 &&
+            strncmp(sfs.f_mntfromname, "/dev/md", 7) == 0) {
+            klog_printf("Unmount dev %s -> %s\n", sfs.f_mntfromname, dst);
+            unmount_ufs_image(dst, sfs.f_mntfromname);
+        }
+    }
+
+    closedir(dir);
+    return 0;
+}
+
 static int monitor_usb_changes(void) {
     struct kevent evt;
     int kq;
+    int nev = -1;
+    int ret;
+    void* handle = 0;
+    uint64_t pattern = 0, last_pattern = 0;
 
     if ((kq = kqueue()) < 0) {
         klog_perror("Failed to create kqueue");
@@ -378,17 +425,49 @@ static int monitor_usb_changes(void) {
         return -1;
     }
 
+    ret = sceKernelOpenEventFlag(&handle, "SceSystemStateMgrInfo");
+    if (ret) {
+        klog_printf("sceKernelOpenEventFlag error %08x", ret);
+    }
+
     while (1) {
-        if (kevent(kq, NULL, 0, &evt, 1, NULL) < 0) {
+        struct timespec tout = {0, 100000000};
+        if ((nev = kevent(kq, NULL, 0, &evt, 1, &tout)) < 0) {
             klog_perror("kevent wait failed while monitoring USB changes");
             break;
         }
 
-        if (bind_mount_all_titles("/user/app") < 0) {
-            klog_perror("Failed to bind mount /user/app titles after USB change");
+        if (nev > 0) {
+            uint64_t status = pattern & 0xFFFF;
+            if (status != SYSTEM_STATE_MGR_STATE_SUSPEND_ON_GOING && status != SYSTEM_STATE_MGR_STATE_SHUTDOWN_ON_GOING) {
+                if (bind_mount_all_titles("/user/app") < 0) {
+                    klog_perror("Failed to bind mount /user/app titles after USB change");
+                }
+            }
+        } else if (nev == 0 && handle) {
+            ret = sceKernelPollEventFlag(handle, 0xFFFF, 0x02, &pattern);
+            if (ret == 0) {
+                if (pattern != last_pattern) {
+                    uint64_t status = pattern & 0xFFFF;
+                    if (status == SYSTEM_STATE_MGR_STATE_SUSPEND_ON_GOING || status == SYSTEM_STATE_MGR_STATE_SHUTDOWN_ON_GOING) {
+                        umount_all_ufs_titles("/system_ex/app");
+                    } else if (status == SYSTEM_STATE_MGR_STATE_WORKING) {
+                        if (bind_mount_all_titles("/user/app") < 0) {
+                            klog_perror("Failed to bind mount /user/app titles after sytem ready");
+                        }
+                    }
+                    klog_printf("sceKernelPollEventFlag: %016x", pattern);
+                    last_pattern = pattern;
+                }
+            } else {
+                klog_printf("sceKernelPollEventFlag error %08x", ret);
+            }
         }
     }
 
+    if (handle) {
+        sceKernelCloseEventFlag(handle);
+    }
     close(kq);
     return 0;
 }
