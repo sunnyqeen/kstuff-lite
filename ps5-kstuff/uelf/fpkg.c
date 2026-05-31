@@ -128,8 +128,7 @@ static struct crypto_message_info inspect_crypto_message(const uint64_t msg_data
 }
 
 static struct crypto_message_result handle_hmac_message(uint64_t msg, const uint64_t msg_data[21],
-                                                        int key_idx, uint64_t bytes_cap,
-                                                        uint64_t* bytes_handled,
+                                                        int key_idx,
                                                         struct crypto_request_cache* cache)
 {
     struct crypto_message_result result = unhandled_crypto_message(msg);
@@ -138,8 +137,7 @@ static struct crypto_message_result handle_hmac_message(uint64_t msg, const uint
         return result;
 
     uint8_t hash[32] = {0};
-    *bytes_handled += msg_data[1];
-    if(bytes_cap < *bytes_handled && pfs_hmac_virtual_fpu_held(cache, hash, key_idx, key, msg_data[2], msg_data[1]))
+    if(pfs_hmac_virtual_fpu_held(cache, hash, key_idx, key, msg_data[2], msg_data[1]))
     {
         result.emulated_messages = 1;
         result.status = -1;
@@ -156,10 +154,9 @@ static struct crypto_message_result handle_hmac_message(uint64_t msg, const uint
     return result;
 }
 
-static struct crypto_message_result handle_xts_message_run(uint64_t msg, const uint64_t first_msg_data[21],
-                                                           int key_idx,
-                                                           uint64_t bytes_cap, uint64_t* bytes_handled,
-                                                           struct crypto_request_cache* cache)
+static struct crypto_message_result handle_xts_message(uint64_t msg, const uint64_t msg_data[21],
+                                                       int key_idx,
+                                                       struct crypto_request_cache* cache)
 {
     struct crypto_message_result result = unhandled_crypto_message(msg);
     uint8_t key[32];
@@ -167,60 +164,20 @@ static struct crypto_message_result handle_xts_message_run(uint64_t msg, const u
         return result;
     METRIC_INC(xts_run_messages_total);
 
-    uint64_t src = first_msg_data[2];
-    uint64_t dst = first_msg_data[3];
-    uint64_t start_sector = first_msg_data[4];
-    uint32_t total_sectors = (uint32_t)first_msg_data[1];
-    int is_encrypt = (first_msg_data[0] & 0x800) >> 11;
-    uint64_t cursor = msg;
+    uint64_t src = msg_data[2];
+    uint64_t dst = msg_data[3];
+    uint64_t start_sector = msg_data[4];
+    uint32_t total_sectors = (uint32_t)msg_data[1];
+    int is_encrypt = (msg_data[0] & 0x800) >> 11;
 
-    while(result.next_msg)
+    if(pfs_xts_virtual_fpu_held(cache, dst, src, key_idx, key, start_sector, total_sectors, is_encrypt))
     {
-        uint64_t next_msg_data[21];
-        if(read_crypto_message(result.next_msg, next_msg_data))
-            break;
-        if(!is_xts_message(next_msg_data))
-            break;
-        uint32_t next_sectors = (uint32_t)next_msg_data[1];
-        if(HANDLE_TO_IDX(next_msg_data[5]) != key_idx
-        || (int)((next_msg_data[0] & 0x800) >> 11) != is_encrypt
-        || next_msg_data[2] != src + ((uint64_t)total_sectors << 12)
-        || next_msg_data[3] != dst + ((uint64_t)total_sectors << 12)
-        || next_msg_data[4] != start_sector + total_sectors
-        || total_sectors > UINT32_MAX - next_sectors)
-            break;
-
-        total_sectors += next_sectors;
-        cursor = result.next_msg;
-        result.next_msg = kpeek64(cursor + 320);
-        result.total_messages++;
+        result.emulated_messages = 1;
+        result.status = -1;
+        return result;
     }
 
-    uint64_t run_bytes = (uint64_t)total_sectors << 12;
-    uint64_t skip_bytes = 0;
-    if(bytes_cap > *bytes_handled)
-        skip_bytes = bytes_cap - *bytes_handled;
-    if(skip_bytes >= run_bytes)
-        skip_bytes = run_bytes;
-    uint32_t skip_sectors = (uint32_t)(skip_bytes >> 12);
-    *bytes_handled += run_bytes;
-    METRIC_ADD(xts_run_skip_sectors, skip_sectors);
-
-    if(skip_sectors < total_sectors)
-    {
-        if(pfs_xts_virtual_fpu_held(cache, dst + ((uint64_t)skip_sectors << 12),
-                                    src + ((uint64_t)skip_sectors << 12), key_idx, key,
-                                    start_sector + skip_sectors, total_sectors - skip_sectors, is_encrypt))
-        {
-            result.emulated_messages = result.total_messages;
-            result.status = -1;
-            return result;
-        }
-    }
-
-    result.emulated_messages = result.total_messages;
-    if(result.total_messages > 1)
-        METRIC_ADD(xts_run_coalesced_messages, result.total_messages - 1);
+    result.emulated_messages = 1;
     result.status = 0;
     return result;
 }
@@ -234,7 +191,7 @@ static inline uint64_t rdtsc(void)
 }
 */
 
-static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
+static int handle_crypto_request(uint64_t* regs)
 {
     METRIC_TIME_START(start_cycles);
     // uint64_t start_time = rdtsc();
@@ -243,7 +200,6 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
     int total_status = 0;
     int handled = 0;
     int fpu_entered = 0;
-    uint64_t new_bytes_handled = 0;
     METRIC_INC(crypto_requests_total);
 
     uint64_t start = (FWVER >= 0x800) ? regs[RBX] : regs[R14];
@@ -277,29 +233,12 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
 
         struct crypto_message_result result;
         if(msg_info.kind == CRYPTO_MESSAGE_XTS)
-            result = handle_xts_message_run(msg, msg_data, msg_info.key_idx, bytes_handled, &new_bytes_handled, &s_crypto_request_cache);
+            result = handle_xts_message(msg, msg_data, msg_info.key_idx, &s_crypto_request_cache);
         else if(msg_info.kind == CRYPTO_MESSAGE_HMAC)
-            result = handle_hmac_message(msg, msg_data, msg_info.key_idx, bytes_handled, &new_bytes_handled, &s_crypto_request_cache);
+            result = handle_hmac_message(msg, msg_data, msg_info.key_idx, &s_crypto_request_cache);
         else
             result = unhandled_crypto_message(msg);
         int status = result.status;
-
-        if (status == EINTR) // partial decrypt, need to restart the syscall
-        {
-            METRIC_INC(crypto_requests_restarted);
-            uint64_t frame[6] = {
-                MKTRAP(TRAP_FPKG, 2), 0, 0, 0, 0,
-                new_bytes_handled,
-            };
-            if(push_stack_checked(regs, frame, sizeof(frame)))
-            {
-                total_status = -1;
-                break;
-            }
-            regs[RIP] = (uint64_t)doreti_iret;
-            handled = 1;
-            goto exit;
-        }
 
         total += result.total_messages;
 
@@ -319,7 +258,6 @@ static int handle_crypto_request(uint64_t* regs, uint64_t bytes_handled)
         {
             // not all requests successfully emulated
             // we can't run only part of the request, so just report failure
-            METRIC_INC(fpkg_request_partial_emulation);
             total_status = -1;
         }
 
@@ -350,7 +288,7 @@ int try_handle_fpkg_trap(uint64_t* regs)
 {
     if(regs[RIP] == (uint64_t)sceSblServiceCryptAsync_deref_singleton)
     {
-        if(handle_crypto_request(regs, 0))
+        if(handle_crypto_request(regs))
             observe_current_syscall_emulated();
         else
         {
@@ -468,14 +406,6 @@ void handle_fpkg_trap(uint64_t* regs, uint32_t trapno)
         regs[RBP] = frame[10];
         regs[RIP] = frame[11];
         regs[RAX] = 0;
-    }
-    else if(trapno == 2)
-    {
-        uint64_t frame[6];
-        if(pop_stack_checked(regs, frame, sizeof(frame)))
-            return;
-        regs[RIP] = (uint64_t)sceSblServiceCryptAsync_deref_singleton;
-        handle_crypto_request(regs, frame[5]);
     }
 }
 

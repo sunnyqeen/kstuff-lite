@@ -7,12 +7,17 @@
 #endif
 
 enum {
-    SHARED_AREA_SIZE = 8192,
     SHARED_FAKE_KEY_SLOTS = 63,
     SHARED_LOG_WORD_CAP = 16,
     SHARED_LOG_MSG_CAP = 488,
     SHARED_IOCTL_COM_TRACK_CAP = 128,
 };
+
+#if KSTUFF_OBS
+enum { SHARED_AREA_SIZE = 8192 };
+#else
+enum { SHARED_AREA_SIZE = 2048 };
+#endif
 
 struct kstuff_metrics
 {
@@ -162,7 +167,6 @@ struct kstuff_metrics
     uint64_t crypto_requests_emulated;
     uint64_t crypto_requests_fallback;
     uint64_t crypto_requests_failed;
-    uint64_t crypto_requests_restarted;
     uint64_t crypto_messages_total;
     uint64_t crypto_messages_xts;
     uint64_t crypto_messages_hmac;
@@ -173,8 +177,6 @@ struct kstuff_metrics
     uint64_t xts_requests;
     uint64_t xts_sectors;
     uint64_t xts_run_messages_total;
-    uint64_t xts_run_coalesced_messages;
-    uint64_t xts_run_skip_sectors;
 
     uint64_t xts_full_direct_runs;
     uint64_t xts_full_direct_sectors;
@@ -213,7 +215,6 @@ struct kstuff_metrics
     uint64_t fpkg_reject_hmac_bad_shape;
     uint64_t fpkg_reject_other_message;
     uint64_t fpkg_request_no_emulation;
-    uint64_t fpkg_request_partial_emulation;
     uint64_t fpkg_request_fpu_enter_fail;
 
     uint64_t shared_area_snapshots;
@@ -273,10 +274,12 @@ struct shared_area_layout
     uint64_t ready_mask;
     char pad[16];
     uint8_t key_data[SHARED_FAKE_KEY_SLOTS][32];
+#if KSTUFF_OBS
     struct kstuff_metrics metrics;
     struct kstuff_word_log word_log;
     struct kstuff_ioctl_com_table ioctl_com_table;
     struct kstuff_msg_log msg_log;
+#endif
 };
 
 extern struct shared_area_layout shared_area;
@@ -292,15 +295,19 @@ extern struct shared_area_layout shared_area;
 } while(0)
 #else
 #define METRIC_INC(field) do { } while(0)
-#define METRIC_ADD(field, value) do { (void)(value); } while(0)
-#define METRIC_MAX(field, value) do { (void)(value); } while(0)
+#define METRIC_ADD(field, value) do { } while(0)
+#define METRIC_MAX(field, value) do { } while(0)
 #endif
 
-_Static_assert(sizeof(struct kstuff_metrics) == 1544, "unexpected metrics size");
+_Static_assert(sizeof(struct kstuff_metrics) == 1512, "unexpected metrics size");
 _Static_assert(sizeof(struct kstuff_word_log) == 264, "unexpected word log size");
 _Static_assert(sizeof(struct kstuff_ioctl_com_entry) == 24, "unexpected ioctl com entry size");
 _Static_assert(sizeof(struct kstuff_ioctl_com_table) == 3088, "unexpected ioctl com table size");
 _Static_assert(sizeof(struct kstuff_msg_log) == 504, "unexpected message log size");
-_Static_assert(sizeof(struct kstuff_snapshot) == 5416, "unexpected snapshot size");
-_Static_assert(sizeof(struct shared_area_layout) == 7448, "unexpected shared_area size");
+_Static_assert(sizeof(struct kstuff_snapshot) == 5384, "unexpected snapshot size");
+#if KSTUFF_OBS
+_Static_assert(sizeof(struct shared_area_layout) == 7416, "unexpected shared_area size");
+#else
+_Static_assert(sizeof(struct shared_area_layout) == 2048, "unexpected non-OBS shared_area size");
+#endif
 _Static_assert(sizeof(struct shared_area_layout) <= SHARED_AREA_SIZE, "shared_area must fit in configured mapping");

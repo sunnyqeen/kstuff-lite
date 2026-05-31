@@ -247,7 +247,6 @@ static void print_metrics(const struct kstuff_metrics* metrics)
     PRINT_FIELD("emu", metrics->crypto_requests_emulated);
     PRINT_FIELD("fallback", metrics->crypto_requests_fallback);
     PRINT_FIELD("fail", metrics->crypto_requests_failed);
-    PRINT_FIELD("restart", metrics->crypto_requests_restarted);
     PRINT_FIELD("msg", metrics->crypto_messages_total);
     PRINT_FIELD("xts_msg", metrics->crypto_messages_xts);
     PRINT_FIELD("hmac_msg", metrics->crypto_messages_hmac);
@@ -259,8 +258,6 @@ static void print_metrics(const struct kstuff_metrics* metrics)
     PRINT_FIELD("req", metrics->xts_requests);
     PRINT_FIELD("sectors", metrics->xts_sectors);
     PRINT_FIELD("run_msg", metrics->xts_run_messages_total);
-    PRINT_FIELD("coalesced", metrics->xts_run_coalesced_messages);
-    PRINT_FIELD("skipped", metrics->xts_run_skip_sectors);
     PRINT_FIELD("direct_runs", metrics->xts_full_direct_runs);
     PRINT_FIELD("direct_sectors", metrics->xts_full_direct_sectors);
     PRINT_FIELD("fallback", metrics->xts_full_fallback_sectors);
@@ -291,7 +288,6 @@ static void print_metrics(const struct kstuff_metrics* metrics)
     PRINT_FIELD("hmac_shape", metrics->fpkg_reject_hmac_bad_shape);
     PRINT_FIELD("other", metrics->fpkg_reject_other_message);
     PRINT_FIELD("no_emu", metrics->fpkg_request_no_emulation);
-    PRINT_FIELD("partial", metrics->fpkg_request_partial_emulation);
     PRINT_FIELD("fpu_fail", metrics->fpkg_request_fpu_enter_fail);
     tee_putc('\n');
 
