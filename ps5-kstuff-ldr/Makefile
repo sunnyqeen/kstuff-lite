@@ -26,10 +26,6 @@ else
 endif
 
 CFLAGS += -Wall -Werror
-LDFLAGS += -lz -lSceSystemService -lSceUserService -lSceAppInstUtil -lSceFsInternalForVsh -lsqlite3
-
-# Automatically grab all .c files in current directory
-SRC := $(wildcard *.c)
 
 all: kstuff.elf
 
@@ -39,10 +35,10 @@ all: kstuff.elf
 payload_bin.c: ../ps5-kstuff/payload.bin
 	xxd -i $^ > $@
 
-kstuff.elf: payload_bin.c $(SRC)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LOADER_OPT) $(SRC) -o $@ $(LDFLAGS)
+kstuff.elf: payload_bin.c main.c sqlite_triggers.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LOADER_OPT) $(LDFLAGS) -o $@ main.c sqlite_triggers.c -lsqlite3
 	strip $@
-
+	
 clean:
 	rm -f payload_bin.c *.o *.elf
 

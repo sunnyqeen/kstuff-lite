@@ -12,7 +12,7 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program; see the file COPYING. If not, see
-<http://www.gnu.org/licenses/>.  */		   
+<http://www.gnu.org/licenses/>.  */
 
 #include <elf.h>
 #include <stdio.h>
@@ -22,7 +22,6 @@ along with this program; see the file COPYING. If not, see
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
-#include <signal.h>
 
 #include <sys/mman.h>
 #include <sys/_iovec.h>
@@ -31,19 +30,11 @@ along with this program; see the file COPYING. If not, see
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
-#include <sys/event.h>
 
 #include <machine/param.h>
 #include <ps5/payload.h>
 #include <ps5/klog.h>
 #include "payload_bin.c"
-
-#include "image.h"
-#include "ufs_mount.h"
-#include "pfs_mount.h"
-#include "exfat_mount.h"
-#include "mount_helpers.h"
-#include "utils.h"
 
 int patch_app_db(void);
 int sceKernelSetProcessName(const char *name);
@@ -51,48 +42,40 @@ int sceKernelSetProcessName(const char *name);
 #define ROUND_PG(x) (((x) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
 #define TRUNC_PG(x) ((x) & ~(PAGE_SIZE - 1))
 #define PFLAGS(x)   ((((x) & PF_R) ? PROT_READ  : 0) | \
-             (((x) & PF_W) ? PROT_WRITE : 0) | \
-             (((x) & PF_X) ? PROT_EXEC  : 0))
+		     (((x) & PF_W) ? PROT_WRITE : 0) | \
+		     (((x) & PF_X) ? PROT_EXEC  : 0))
 
 #define IOVEC_ENTRY(x) { (void*)(x), (x) ? strlen(x) + 1 : 0 }
 #define IOVEC_SIZE(x)  (sizeof(x) / sizeof(struct iovec))
 
-static int mount_source(const char* src_path, char* out_mounted_path)
-{
-    char image_path[MAX_PATH] = {0};
-    bool is_ufs = false, is_pfs = false, is_exfat = false;
-
-    if (find_image_in_dir(src_path, image_path, sizeof(image_path), 
-                         &is_ufs, &is_pfs, &is_exfat)) {
-        
-        klog_printf("Image detected in folder: %s\n", image_path);
-
-        if (is_ufs && mount_ufs_image(image_path, out_mounted_path)) {
-            klog_printf("UFS image mounted\n");
-            return 0;
-        }
-        else if (is_pfs && mount_pfs_image(image_path, out_mounted_path)) {
-            klog_printf("PFS image mounted\n");
-            return 0;
-        }
-        else if (is_exfat && mount_exfat_image(image_path, out_mounted_path)) {
-            klog_printf("exFAT image mounted\n");
-            return 0;
-        }
-        
-        klog_printf("Image mount failed, falling back to folder mode\n");
-    }
-
-    // No image or mount failed → use folder directly
-    strncpy(out_mounted_path, src_path, PATH_MAX - 1);
-    out_mounted_path[PATH_MAX - 1] = '\0';
-    return 0;
+static int remount_system_ex(void) {
+    struct iovec iov[] = {
+        IOVEC_ENTRY("from"),      IOVEC_ENTRY("/dev/ssd0.system_ex"),
+        IOVEC_ENTRY("fspath"),    IOVEC_ENTRY("/system_ex"),
+        IOVEC_ENTRY("fstype"),    IOVEC_ENTRY("exfatfs"),
+        IOVEC_ENTRY("large"),     IOVEC_ENTRY("yes"),
+        IOVEC_ENTRY("timezone"),  IOVEC_ENTRY("static"),
+        IOVEC_ENTRY("async"),     IOVEC_ENTRY(NULL),
+        IOVEC_ENTRY("ignoreacl"), IOVEC_ENTRY(NULL),
+    };
+    return nmount(iov, IOVEC_SIZE(iov), MNT_UPDATE);
 }
 
-static int bind_mount_title(const char* title_id, const char* src)
-{
+static int mount_nullfs(const char* src, const char* dst) {
+    struct iovec iov[] = {
+        IOVEC_ENTRY("fstype"), IOVEC_ENTRY("nullfs"),
+        IOVEC_ENTRY("from"),   IOVEC_ENTRY(src),
+        IOVEC_ENTRY("fspath"), IOVEC_ENTRY(dst),
+    };
+    return nmount(iov, IOVEC_SIZE(iov), 0);
+}
+
+static int automount_disabled(void) {
+    return access("/data/.kstuff_noautomount", F_OK) == 0;
+}
+
+static int bind_mount_title(const char* title_id, const char* src) {
     char dst[PATH_MAX];
-    char mounted_src[PATH_MAX] = {0};
     struct stat st;
 
     snprintf(dst, sizeof(dst), "/system_ex/app/%s/sce_sys", title_id);
@@ -111,23 +94,13 @@ static int bind_mount_title(const char* title_id, const char* src)
         return -1;
     }
 
-    // NEW: Try to mount image if present, otherwise use folder
-    if (mount_source(src, mounted_src) != 0) {
-        klog_printf("Failed to prepare source, using original path\n");
-        strncpy(mounted_src, src, sizeof(mounted_src)-1);
-    }
-
-    if (mount_nullfs(mounted_src, dst) != 0) {
+    if (mount_nullfs(src, dst) != 0) {
         klog_perror("Failed to bind mount title with mount_nullfs");
         return -1;
     }
 
-    klog_printf("Title Mounted Successfully: %s -> %s\n", mounted_src, dst);
+    klog_printf("Title Mounted Successfully: %s -> %s\n", src, dst);
     return 0;
-}
-
-static int automount_disabled(void) {
-    return access("/data/.kstuff_noautomount", F_OK) == 0;
 }
 
 static int read_mount_link(const char* path, char* buf, size_t size) {
@@ -239,9 +212,8 @@ pt_load(const void* image, void* base, Elf64_Phdr *phdr) {
   }
 }
 
-
 int main(void) {
-    sceKernelSetProcessName("kstuff.elf");
+	sceKernelSetProcessName("kstuff.elf");
     Elf64_Ehdr *ehdr = (Elf64_Ehdr*)___ps5_kstuff_payload_bin;
     Elf64_Phdr *phdr = (Elf64_Phdr*)(___ps5_kstuff_payload_bin + ehdr->e_phoff);
     void *base = (void*)0x0000000926100000;
@@ -300,7 +272,7 @@ int main(void) {
         *args->payloadout = patch_app_db();
     }
 
-    klog_printf("Remounting /system_ex and mounting titles with image support...\n");
+    klog_printf("Remounting /system_ex and mounting titles...\n");
     remount_system_ex();
     scan_and_mount_titles();
 
