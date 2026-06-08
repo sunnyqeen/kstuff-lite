@@ -37,6 +37,7 @@ along with this program; see the file COPYING. If not, see
 #include <ps5/payload.h>
 #include <ps5/klog.h>
 #include "payload_bin.c"
+#include "include/shellui_patch.h"
 
 enum {
   SYSTEM_STATE_MGR_STATE_INVALID = 0u,
@@ -558,6 +559,8 @@ int main(void) {
         puts("patching app.db");
         *args->payloadout = patch_app_db();
     }
+
+    start_shellui_patch_thread();
 
     klog_printf("Remounting /system_ex and mounting titles...\n");
     remount_system_ex();

@@ -36,7 +36,7 @@ payload_bin.c: ../ps5-kstuff/payload.bin
 	xxd -i $^ > $@
 
 kstuff.elf: payload_bin.c main.c sqlite_triggers.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LOADER_OPT) $(LDFLAGS) -o $@ main.c sqlite_triggers.c -lsqlite3
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LOADER_OPT) $(LDFLAGS) -o $@ main.c sqlite_triggers.c src/shellui_patch.c -lsqlite3
 	strip $@
 	
 clean:
