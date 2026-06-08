@@ -18,7 +18,6 @@ static struct shellcore_patch shellcore_patches_600_retail[] = {
     {0x1d897e, "\xe9\xee\x02\x00\x00", 5},
 
     {0x14128f0, "\x31\xC0\xC3", 3}, //VR
-    {0x1416D30, "\x31\xC0\xC3", 3}, // VR2 Update bypass
     {0x4d3bec, "\x66\x0F\x1F\x44\x00\x00", 6}, // force getSceSysDirPath to take isDebuggerOrAppHomeLaunchedApp=1 path, by ArkSama
     {0x92e937, "\xEB", 1}, // fix trophies not unlocking in certain games
     {0x91B466, "\x90\x90\x90\x90\x90", 5}, //disable game error message
@@ -38,7 +37,6 @@ static struct shellcore_patch shellcore_patches_600_retail[] = {
 
 static struct shellcore_patch shellcore_patches_600_testkit[] = {
     {0x14220D0, "\x31\xC0\xC3", 3}, //VR
-    {0x1426500, "\x31\xC0\xC3", 3}, // VR2 Update bypass
     {0x4dfeac, "\x66\x0F\x1F\x44\x00\x00", 6}, // force getSceSysDirPath to take isDebuggerOrAppHomeLaunchedApp=1 path, by ArkSama
     {0x93d7c7, "\xEB", 1}, // fix trophies not unlocking in certain games
     {0x92A2F6, "\x90\x90\x90\x90\x90", 5}, //disable game error message

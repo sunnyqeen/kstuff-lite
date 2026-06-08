@@ -20,7 +20,6 @@ static struct shellcore_patch shellcore_patches_1001_retail[] = {
     {0x7460A0, "\xC3", 1}, // callback to sceRifManagerRegisterActivationCallback
 
     {0x16A1980, "\x31\xc0\xc3", 3}, // VR
-    {0x16A5D90, "\x31\xc0\xc3", 3}, // VR2 Update bypass
     {0x5d8511, "\x66\x90", 2}, // force getSceSysDirPath to take isDebuggerOrAppHomeLaunchedApp=1 path, by ArkSama
     {0xaa9cc1, "\xEB", 1}, // fix trophies not unlocking in certain game
     {0xA86D73, "\xeb\x03", 2}, // disable game error message
