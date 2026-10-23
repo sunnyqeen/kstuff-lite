@@ -36,7 +36,7 @@ LDFLAGS += -lz \
 		   -Wl,-s
 
 # Automatically grab all .c files in src/
-SRC := $(shell find src -name '*.c')
+SRC := $(shell find src ppr -name '*.c')
 
 all: kstuff.elf
 

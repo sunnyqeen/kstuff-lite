@@ -57,6 +57,7 @@ int shellcore_import_got(int pid, uint64_t image_base, uint32_t required_mask,
 int patch_app_db(void);
 int sceKernelSetProcessName(const char *name);
 int monitor_usb_changes(void);
+int ppr_patch(void);
 
 #define ROUND_PG(x) (((x) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
 #define TRUNC_PG(x) ((x) & ~(PAGE_SIZE - 1))
@@ -139,6 +140,9 @@ int main(void) {
         puts("patching app.db");
         *args->payloadout = patch_app_db();
     }
+
+    ppr_patch();
+
     start_shellui_patch_thread();
 
     monitor_usb_changes();
