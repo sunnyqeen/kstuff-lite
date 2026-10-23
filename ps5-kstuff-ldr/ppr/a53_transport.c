@@ -15,9 +15,9 @@
 
 #include <ps5/kernel.h>
 
-#define printf ppr_printf
-#define puts ppr_puts
-#define perror ppr_perror
+//#define printf ppr_printf
+//#define puts ppr_puts
+//#define perror ppr_perror
 
 #define DECI5S_MAGIC        0x73354450U
 #define DECI5S_SRC_KERNEL   0x80FF0180U

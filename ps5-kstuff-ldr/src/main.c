@@ -141,7 +141,8 @@ int main(void) {
         *args->payloadout = patch_app_db();
     }
 
-    ppr_patch();
+    puts("ppr_patch starting");
+    printf("ppr_patch result %d\n", ppr_patch());
 
     start_shellui_patch_thread();
 

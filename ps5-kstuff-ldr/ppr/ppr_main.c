@@ -10,8 +10,8 @@
 
 #include <ps5/kernel.h>
 
-#define printf ppr_printf
-#define puts ppr_puts
+//#define printf ppr_printf
+//#define puts ppr_puts
 
 #ifndef PPR_DEFAULT_ACTION
 #define PPR_DEFAULT_ACTION PPR_PATCH_INSTALL
@@ -124,12 +124,12 @@ static int ppr_main(void) {
     a53_transport_make_ppr(&transport, fast_mode);
     int result = ppr_patch_run_target(&transport, target_firmware, target,
                                       action, idle_acknowledged);
-    ppr_notify_flush();
+    //ppr_notify_flush();
     return result == 0 ? 0 : 1;
 }
 
 int ppr_patch(void) {
     int ret = ppr_main();
-    ppr_notify_flush();
+    //ppr_notify_flush();
     return ret;
 }
